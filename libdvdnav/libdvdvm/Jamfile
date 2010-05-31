@@ -1,0 +1,7 @@
+SubDir HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdvm ;
+
+StaticLibrary libdvdvm.a :
+    decoder.c
+    vm.c
+    vmcmd.c
+;

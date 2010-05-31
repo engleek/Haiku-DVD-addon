@@ -1,0 +1,13 @@
+SubDir HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdread ;
+
+StaticLibrary libdvdread.a :
+    bitreader.c
+    dvd_input.c
+    dvd_reader.c
+    dvd_udf.c
+    ifo_print.c
+    ifo_read.c
+    md5.c
+    nav_print.c
+    nav_read.c
+;
