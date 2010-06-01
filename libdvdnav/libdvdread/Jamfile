@@ -1,5 +1,7 @@
 SubDir HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdread ;
 
+SubDirSysHdrs [ FDirName $(SUBDIR) $(DOTDOT) ] ;
+
 StaticLibrary libdvdread.a :
     bitreader.c
     dvd_input.c

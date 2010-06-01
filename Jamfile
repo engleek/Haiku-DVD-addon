@@ -10,6 +10,8 @@ Addon dvd :
     dvd.cpp
     :
     libdvdnav.a
+    libdvdvm.a
+    libdvdread.a
     be libmedia.so $(TARGET_LIBSTDC++)
 ;
 
