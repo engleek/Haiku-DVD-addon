@@ -1,4 +1,4 @@
-SubDir HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdvm ;
+SubDir HAIKU_TOP src add-ons media media-add-ons dvd libdvdnav libdvdvm ;
 
 SubDirHdrs [ FDirName $(SUBDIR) $(DOTDOT) ] ;
 SubDirHdrs [ FDirName $(SUBDIR) $(DOTDOT) libdvdread ] ;

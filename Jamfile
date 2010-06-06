@@ -1,18 +1,19 @@
-SubDir HAIKU_TOP src add-ons media plugins dvd ;
-
-SetSubDirSupportedPlatformsBeOSCompatible ;
+SubDir HAIKU_TOP src add-ons media media-add-ons dvd ;
 
 UsePrivateHeaders media ;
 
 SubDirHdrs [ FDirName $(SUBDIR) libdvdnav ] ;
+SubDirHdrs [ FDirName $(SUBDIR) libdvdnav libdvdvm ] ;
+SubDirHdrs [ FDirName $(SUBDIR) libdvdnav libdvdread ] ;
 
-Addon dvd :
-    dvd.cpp
+Addon dvd.media_addon :
+    DVDMediaNode.cpp
+    DVDMediaAddOn.cpp
     :
     libdvdnav.a
     libdvdvm.a
     libdvdread.a
-    be libmedia.so $(TARGET_LIBSTDC++)
+    be media $(TARGET_LIBSUPC++)
 ;
 
-SubInclude HAIKU_TOP src add-ons media plugins dvd libdvdnav ;
+SubInclude HAIKU_TOP src add-ons media media-add-ons dvd libdvdnav ;

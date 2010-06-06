@@ -1,4 +1,4 @@
-SubDir HAIKU_TOP src add-ons media plugins dvd libdvdnav ;
+SubDir HAIKU_TOP src add-ons media media-add-ons dvd libdvdnav ;
 
 SubDirHdrs [ FDirName $(SUBDIR) libdvdvm ] ;
 SubDirHdrs [ FDirName $(SUBDIR) libdvdread ] ;
@@ -13,5 +13,5 @@ StaticLibrary libdvdnav.a :
     settings.c
 ;
 
-SubInclude HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdvm ;
-SubInclude HAIKU_TOP src add-ons media plugins dvd libdvdnav libdvdread ;
+SubInclude HAIKU_TOP src add-ons media media-add-ons dvd libdvdnav libdvdvm ;
+SubInclude HAIKU_TOP src add-ons media media-add-ons dvd libdvdnav libdvdread ;
