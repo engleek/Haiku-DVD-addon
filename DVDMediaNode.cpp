@@ -425,7 +425,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     output_fd = 0;
     dump = 0;
     tt_dump = 0;
-    buf = mem;
+    dvdbuf = mem;
 
     uint32 *buffer, *p;
     p = buffer = (uint32 *)malloc(2048);
@@ -434,7 +434,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
         return;
     }
     bigtime_t now = system_time();
-    dvdnav_get_next_block(dvdnav, buf, &event, &len);
+    dvdnav_get_next_block(dvdnav, dvdbuf, &event, &len);
     fProcessingLatency = system_time() - now;
     free(buffer);
 
@@ -580,6 +580,7 @@ DVDMediaNode::HandleStart(bigtime_t performance_time)
     fFrame = 0;
     fFrameBase = 0;
     fPerformanceTimeBase = performance_time;
+    finished = 0;
 
     fFrameSync = create_sem(0, "frame synchronization");
     if (fFrameSync < B_OK)
@@ -644,7 +645,7 @@ DVDMediaNode::FrameGenerator()
 {
     bigtime_t wait_until = system_time();
 
-    while (1) {
+    while (!finished) {
         status_t err = acquire_sem_etc(fFrameSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
@@ -706,15 +707,137 @@ DVDMediaNode::FrameGenerator()
         h->orig_size = 0;
         h->data_offset = 0;
 
-        buf = (uint8_t *)buffer->Data();
-        dvdnav_get_next_block(dvdnav, buf, &event, &len);
+        uint8_t *p = (uint8_t *)buffer->Data();
 
-        /* Send the buffer on down to the consumer */
-        if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
-            PRINTF(-1, ("FrameGenerator: Error sending buffer\n"));
-            /* If there is a problem sending the buffer, return it to its
-             * buffer group. */
-            buffer->Recycle();
+        result = dvdnav_get_next_block(dvdnav, dvdbuf, &event, &len);
+
+        if (result == DVDNAV_STATUS_ERR) {
+            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(dvdnav));
+            return -1;
+        }
+
+        switch (event) {
+        case DVDNAV_BLOCK_OK:
+            // Regular MPEG block: Send the buffer on down to the consumer
+            if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
+                printf("DVD: FrameGenerator: Error sending buffer\n");
+                buffer->Recycle();
+            }
+
+            break;
+        case DVDNAV_NOP:
+            // No idea why this exists...
+            break;
+        case DVDNAV_STILL_FRAME:
+            // Still frame: Find still time
+            {
+                dvdnav_still_event_t *still_event = (dvdnav_still_event_t *)dvdbuf;
+                if (still_event->length < 0xff)
+                    printf("DVD: Still frame: %d seconds\n", still_event->length);
+                else
+                    printf("DVD: Still frame: indefinite\n");
+                dvdnav_still_skip(dvdnav);
+            }
+            break;
+        case DVDNAV_WAIT:
+            /* We have reached a point in DVD playback, where timing is critical.
+            * Player application with internal fifos can introduce state
+            * inconsistencies, because libdvdnav is always the fifo's length
+            * ahead in the stream compared to what the application sees.
+            * Such applications should wait until their fifos are empty
+            * when they receive this type of event. */
+            printf("DVD: Skipping wait condition\n");
+            dvdnav_wait_skip(dvdnav);
+            break;
+        case DVDNAV_SPU_CLUT_CHANGE:
+            // New colours!
+            break;
+        case DVDNAV_SPU_STREAM_CHANGE:
+            // New stream
+            break;
+        case DVDNAV_AUDIO_STREAM_CHANGE:
+            // Switch audio channels
+            break;
+        case DVDNAV_HIGHLIGHT:
+            // Button highlight
+            {
+                dvdnav_highlight_event_t *highlight_event = (dvdnav_highlight_event_t *)dvdbuf;
+                printf("DVD: Selected button %d\n", highlight_event->buttonN);
+            }
+            break;
+        case DVDNAV_VTS_CHANGE:
+            /* Some status information like video aspect and video scale permissions do
+            * not change inside a VTS. Therefore this event can be used to query such
+            * information only when necessary and update the decoding/displaying
+            * accordingly. */
+            break;
+        case DVDNAV_CELL_CHANGE:
+            /* Some status information like the current Title and Part numbers do not
+            * change inside a cell. Therefore this event can be used to query such
+            * information only when necessary and update the decoding/displaying
+            * accordingly. */
+            {
+                int32_t tt = 0, ptt = 0;
+                uint32_t pos, len;
+                char input = '\0';
+
+                dvdnav_current_title_info(dvdnav, &tt, &ptt);
+                dvdnav_get_position(dvdnav, &pos, &len);
+                printf("DVD: Cell change: Title %d, Chapter %d\n", tt, ptt);
+                printf("DVD: At position %.0f%% inside the feature\n", 100 * (double)pos / (double)len);
+            }
+            break;
+        case DVDNAV_NAV_PACKET:
+            /* A NAV packet provides PTS discontinuity information, angle linking information and
+            * button definitions for DVD menus. Angles are handled completely inside libdvdnav.
+            * For the menus to work, the NAV packet information has to be passed to the overlay
+            * engine of the player so that it knows the dimensions of the button areas. */
+            {
+                pci_t *pci;
+
+                /* Applications with fifos should not use these functions to retrieve NAV packets,
+                * they should implement their own NAV handling, because the packet you get from these
+                * functions will already be ahead in the stream which can cause state inconsistencies.
+                * Applications with fifos should therefore pass the NAV packet through the fifo
+                * and decoding pipeline just like any other data. */
+                pci = dvdnav_get_current_nav_pci(dvdnav);
+                dvdnav_get_current_nav_dsi(dvdnav);
+
+                if(pci->hli.hl_gi.btn_ns > 0) {
+                    int button;
+
+                    printf("DVD: Found %i DVD menu buttons...\n", pci->hli.hl_gi.btn_ns);
+
+                    for (button = 0; button < pci->hli.hl_gi.btn_ns; button++) {
+                        btni_t *btni = &(pci->hli.btnit[button]);
+                        printf("DVD: Button %i top-left @ (%i,%i), bottom-right @ (%i,%i)\n",
+                        button + 1, btni->x_start, btni->y_start,
+                        btni->x_end, btni->y_end);
+                    }
+
+                    button = 0; // First button, generally the start film button
+
+                    printf("DVD: Selecting button %i...\n", button);
+                    /* This is the point where applications with fifos have to hand in a NAV packet
+                    * which has traveled through the fifos. See the notes above. */
+                    dvdnav_button_select_and_activate(dvdnav, pci, button);
+                }
+            }
+            break;
+        case DVDNAV_HOP_CHANNEL:
+            /* This event is issued whenever a non-seamless operation has been executed.
+            * Applications with fifos should drop the fifos content to speed up responsiveness. */
+            break;
+        case DVDNAV_STOP:
+            /* Playback should end here. */
+            {
+                finished = 1;
+            }
+            break;
+        default:
+            printf("DVD: Unknown event (%i)\n", event);
+            finished = 1;
+            break;
         }
     }
 

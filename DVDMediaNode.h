@@ -152,7 +152,7 @@ static  int32               _frame_generator_(void *data);
         int                 result;
         int                 event;
         int                 len;
-        uint8_t             *buf;
+        uint8_t             *dvdbuf;
 
         BList               fDriveList;
         BString*            fDrivePath;
