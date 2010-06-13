@@ -11,15 +11,21 @@
 #include "DVDMediaAddOn.h"
 #include "DVDMediaNode.h"
 
+#define WIDTH 720
+#define HEIGHT 576
+#define FIELD_RATE 25.f
+
 DVDMediaAddOn::DVDMediaAddOn(image_id imid)
     : BMediaAddOn(imid)
 {
-    fMediaFormat.type = B_MEDIA_MULTISTREAM; // should be MPEG2 video + audio
-    fMediaFormat.u.raw_video = media_raw_video_format::wildcard;
-    fMediaFormat.u.raw_video.interlace = 1;
-    fMediaFormat.u.raw_video.display.format = B_RGB32;
-    //fMediaFormat.u.multistream = media_multistream_format::wildcard;
-    //fMediaFormat.u.multistream.max_chunk_size = 2048;
+    // The formats largely depend on the DVD
+
+    fMediaFormat.type = B_MEDIA_MULTISTREAM;
+    fMediaFormat.u.multistream = media_multistream_format::wildcard;
+    fMediaFormat.u.multistream.format = media_multistream_format::B_MPEG2;
+    fMediaFormat.u.multistream.u.vid.frame_rate = FIELD_RATE;
+    fMediaFormat.u.multistream.u.vid.width = WIDTH;
+    fMediaFormat.u.multistream.u.vid.height = HEIGHT;
 
     fFlavorInfo.name = "DVD Media";
     fFlavorInfo.info = "DVD Media";

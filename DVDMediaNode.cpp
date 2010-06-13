@@ -37,7 +37,9 @@
 
 #include "DVDMediaNode.h"
 
-#define FIELD_RATE 30.f
+#define WIDTH 720
+#define HEIGHT 576
+#define FIELD_RATE 25.f
 
 #define DVD_LANGUAGE "en"
 
@@ -45,7 +47,7 @@ DVDMediaNode::DVDMediaNode(
         BMediaAddOn *addon, const char *name, int32 internal_id)
   : BMediaNode(name),
     BMediaEventLooper(),
-    BBufferProducer(B_MEDIA_RAW_VIDEO),
+    BBufferProducer(B_MEDIA_MULTISTREAM),
     BControllable()
 {
     fInitStatus = B_NO_INIT;
@@ -72,7 +74,7 @@ DVDMediaNode::DVDMediaNode(
 
     const char *path;
     dvdnav_path(dvdnav, &path);
-    printf("Path: %s", path);
+    printf("DVD Path: %s\n", path);
 
     dvdnav_menu_language_select(dvdnav, DVD_LANGUAGE);
     dvdnav_audio_language_select(dvdnav, DVD_LANGUAGE);
@@ -149,42 +151,19 @@ DVDMediaNode::NodeRegistered()
         return;
     }
 
-    /* Set up the parameter web */
-    BParameterWeb *web = new BParameterWeb();
-    BParameterGroup *main = web->MakeGroup(Name());
-    BDiscreteParameter *state = main->MakeDiscreteParameter(
-            P_COLOR, B_MEDIA_RAW_VIDEO, "Color", "Color");
-    state->AddItem(B_HOST_TO_LENDIAN_INT32(0xff000000), "Block");
-    state->AddItem(B_HOST_TO_LENDIAN_INT32(0x00ff0000), "Red");
-    state->AddItem(B_HOST_TO_LENDIAN_INT32(0x0000ff00), "Green");
-    state->AddItem(B_HOST_TO_LENDIAN_INT32(0x000000ff), "Blue");
-
-    fColor = B_HOST_TO_LENDIAN_INT32(0x00ff0000);
-    fLastColorChange = system_time();
-
-    if (fDVDLoaded) {
-        BDiscreteParameter *state = main->MakeDiscreteParameter(
-                P_COLOR, B_MEDIA_RAW_VIDEO, "Load A-OK", B_ENABLE);
-    } else {
-        BDiscreteParameter *state = main->MakeDiscreteParameter(
-                P_COLOR, B_MEDIA_RAW_VIDEO, "Load failed...", B_ENABLE);
-    }
-
-    /* After this call, the BControllable owns the BParameterWeb object and
-     * will delete it for you */
-    SetParameterWeb(web);
-
     fOutput.node = Node();
     fOutput.source.port = ControlPort();
     fOutput.source.id = 0;
     fOutput.destination = media_destination::null;
     strcpy(fOutput.name, Name());
 
-    /* Tailor these for the output of your device */
-    fOutput.format.type = B_MEDIA_RAW_VIDEO;
-    fOutput.format.u.raw_video = media_raw_video_format::wildcard;
-    fOutput.format.u.raw_video.interlace = 1;
-    fOutput.format.u.raw_video.display.format = B_RGB32;
+    /* Video format config */
+    fOutput.format.type = B_MEDIA_MULTISTREAM;
+    fOutput.format.u.multistream = media_multistream_format::wildcard;
+    fOutput.format.u.multistream.format = media_multistream_format::B_MPEG2;
+    fOutput.format.u.multistream.u.vid.frame_rate = FIELD_RATE;
+    fOutput.format.u.multistream.u.vid.width = WIDTH;
+    fOutput.format.u.multistream.u.vid.height = HEIGHT;
 
     /* Start the BMediaEventLooper control loop running */
     Run();
@@ -285,17 +264,10 @@ status_t
 DVDMediaNode::FormatSuggestionRequested(
         media_type type, int32 quality, media_format *format)
 {
-    if (type != B_MEDIA_RAW_VIDEO)
+    if (type != B_MEDIA_MULTISTREAM)
         return B_MEDIA_BAD_FORMAT;
 
     TOUCH(quality);
-
-    if (fOutput.format.u.raw_video.display.line_width == 0)
-        fOutput.format.u.raw_video.display.line_width = 320;
-    if (fOutput.format.u.raw_video.display.line_count == 0)
-        fOutput.format.u.raw_video.display.line_count = 240;
-    if (fOutput.format.u.raw_video.field_rate == 0)
-        fOutput.format.u.raw_video.field_rate = 29.97f;
 
     *format = fOutput.format;
     return B_OK;
@@ -385,9 +357,7 @@ DVDMediaNode::PrepareToConnect(const media_source &source,
         const media_destination &destination, media_format *format,
         media_source *out_source, char *out_name)
 {
-    PRINTF(1, ("PrepareToConnect() %ldx%ld\n", \
-            format->u.raw_video.display.line_width, \
-            format->u.raw_video.display.line_count));
+    PRINTF(1, ("PrepareToConnect()\n")); // Fill in format details here.
 
     if (fConnected) {
         PRINTF(0, ("PrepareToConnect: Already connected\n"));
@@ -407,13 +377,6 @@ DVDMediaNode::PrepareToConnect(const media_source &source,
         return B_MEDIA_BAD_FORMAT;
     }
 
-    if (format->u.raw_video.display.line_width == 0)
-        format->u.raw_video.display.line_width = 320;
-    if (format->u.raw_video.display.line_count == 0)
-        format->u.raw_video.display.line_count = 240;
-    if (format->u.raw_video.field_rate == 0)
-        format->u.raw_video.field_rate = 29.97f;
-
     *out_source = fOutput.source;
     strcpy(out_name, fOutput.name);
 
@@ -427,9 +390,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
         const media_destination &destination, const media_format &format,
         char *io_name)
 {
-    PRINTF(1, ("Connect() %ldx%ld\n", \
-            format.u.raw_video.display.line_width, \
-            format.u.raw_video.display.line_count));
+    PRINTF(1, ("Connect()\n")); // Again, complete with format details.
 
     if (fConnected) {
         PRINTF(0, ("Connect: Already connected\n"));
@@ -445,15 +406,13 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     fOutput.destination = destination;
     strcpy(io_name, fOutput.name);
 
-    if (fOutput.format.u.raw_video.field_rate != 0.0f) {
-        fPerformanceTimeBase = fPerformanceTimeBase +
-                (bigtime_t)
-                    ((fFrame - fFrameBase) *
-                    (1000000 / fOutput.format.u.raw_video.field_rate));
-        fFrameBase = fFrame;
-    }
+    fPerformanceTimeBase = fPerformanceTimeBase +
+            (bigtime_t)
+                ((fFrame - fFrameBase) *
+                (1000000 / FIELD_RATE));
+    fFrameBase = fFrame;
 
-    fConnectedFormat = format.u.raw_video;
+    fConnectedFormat = format.u.multistream;
 
     /* get the latency */
     bigtime_t latency = 0;
@@ -462,23 +421,26 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     #define NODE_LATENCY 1000
     SetEventLatency(latency + NODE_LATENCY);
 
-    uint32 *buffer, *p, f = 3;
-    p = buffer = (uint32 *)malloc(4 * fConnectedFormat.display.line_count *
-            fConnectedFormat.display.line_width);
+    finished = 0;
+    output_fd = 0;
+    dump = 0;
+    tt_dump = 0;
+    buf = mem;
+
+    uint32 *buffer, *p;
+    p = buffer = (uint32 *)malloc(2048);
     if (!buffer) {
         PRINTF(0, ("Connect: Out of memory\n"));
         return;
     }
     bigtime_t now = system_time();
-    for (int y = 0; y < (int)fConnectedFormat.display.line_count; y++)
-        for (int x = 0; x < (int)fConnectedFormat.display.line_width; x++)
-            *(p++) = ((((x+y)^0^x)+f) & 0xff) * (0x01010101 & fColor);
+    dvdnav_get_next_block(dvdnav, buf, &event, &len);
     fProcessingLatency = system_time() - now;
     free(buffer);
 
     /* Create the buffer group */
-    fBufferGroup = new BBufferGroup(4 * fConnectedFormat.display.line_width *
-            fConnectedFormat.display.line_count, 8);
+    fBufferGroup = new BBufferGroup(4 * WIDTH *
+            HEIGHT, 8);
     if (fBufferGroup->InitCheck() < B_OK) {
         delete fBufferGroup;
         fBufferGroup = NULL;
@@ -700,7 +662,7 @@ DVDMediaNode::FrameGenerator()
         wait_until = TimeSource()->RealTimeFor(fPerformanceTimeBase +
                 (bigtime_t)
                         ((fFrame - fFrameBase) *
-                        (1000000 / fConnectedFormat.field_rate)), 0) -
+                        (1000000 / FIELD_RATE)), 0) -
                 fProcessingLatency;
 
         /* Drop frame if it's at least a frame late */
@@ -723,61 +685,30 @@ DVDMediaNode::FrameGenerator()
 
         /* Fetch a buffer from the buffer group */
         BBuffer *buffer = fBufferGroup->RequestBuffer(
-                        4 * fConnectedFormat.display.line_width *
-                        fConnectedFormat.display.line_count, 0LL);
+                        4 * WIDTH *
+                        HEIGHT, 0LL);
         if (!buffer)
             continue;
 
         /* Fill out the details about this buffer. */
         media_header *h = buffer->Header();
-        h->type = B_MEDIA_RAW_VIDEO;
+        h->type = B_MEDIA_MULTISTREAM;
         h->time_source = TimeSource()->ID();
-        h->size_used = 4 * fConnectedFormat.display.line_width *
-                        fConnectedFormat.display.line_count;
+        h->size_used = 2048;
         /* For a buffer originating from a device, you might want to calculate
          * this based on the PerformanceTimeFor the time your buffer arrived at
          * the hardware (plus any applicable adjustments). */
         h->start_time = fPerformanceTimeBase +
                         (bigtime_t)
                             ((fFrame - fFrameBase) *
-                            (1000000 / fConnectedFormat.field_rate));
+                            (1000000 / FIELD_RATE));
         h->file_pos = 0;
         h->orig_size = 0;
         h->data_offset = 0;
-        h->u.raw_video.field_gamma = 1.0;
-        h->u.raw_video.field_sequence = fFrame;
-        h->u.raw_video.field_number = 0;
-        h->u.raw_video.pulldown_number = 0;
-        h->u.raw_video.first_active_line = 1;
-        h->u.raw_video.line_count = fConnectedFormat.display.line_count;
 
-//        if (fColor == 0xff000000) {
-//            // display a gray block that moves
-//            uint32 *p = (uint32 *)buffer->Data();
-//            for (int y = 0; y < (int)fConnectedFormat.display.line_count; y++)
-//                for (int x = 0; x < (int)fConnectedFormat.display.line_width; x++) {
-//                    if (x > (fFrame & 0xff) && x < (fFrame & 0xff) + 60 && y > 90 && y < 150) {
-//                        *(p++) = 0xff777777;
-//                    } else {
-//                        *(p++) = 0x00000000;
-//                    }
-//                }
-//        } else {
-//
-//            /* Fill in a pattern */
-//            uint32 *p = (uint32 *)buffer->Data();
-//            for (int y = 0; y < (int)fConnectedFormat.display.line_count; y++)
-//                for (int x = 0; x < (int)fConnectedFormat.display.line_width; x++)
-//                    *(p++) = ((((x+y)^0^x)+fFrame) & 0xff) * (0x01010101 & fColor);
-//        }
+        buf = (uint8_t *)buffer->Data();
+        dvdnav_get_next_block(dvdnav, buf, &event, &len);
 
- /*       int event, len;
-        uint8_t *buf = mem;
-
-        uint32 *p = (uint32 *)buffer->Data();
-        dvdnav_get_next_block(dvdnav, buf, event, len);
-        *p = (uint8_t *) buf;
-*/
         /* Send the buffer on down to the consumer */
         if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
             PRINTF(-1, ("FrameGenerator: Error sending buffer\n"));

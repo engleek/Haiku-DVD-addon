@@ -9,6 +9,7 @@
 #include <media/MediaDefs.h>
 #include <media/MediaEventLooper.h>
 #include <media/MediaNode.h>
+#include <media/MediaDecoder.h>
 #include <support/Locker.h>
 #include <String.h>
 
@@ -132,7 +133,7 @@ static  int32               _frame_generator_(void *data);
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;
         media_output        fOutput;
-        media_raw_video_format  fConnectedFormat;
+        media_multistream_format  fConnectedFormat;
         bool                fRunning;
         bool                fConnected;
         bool                fEnabled;
@@ -143,6 +144,15 @@ static  int32               _frame_generator_(void *data);
 
         dvdnav_t            *dvdnav;
         bool                fDVDLoaded;
+        uint8_t             mem[DVD_VIDEO_LB_LEN];
+        int                 finished;
+        int                 output_fd;
+        int                 dump;
+        int                 tt_dump;
+        int                 result;
+        int                 event;
+        int                 len;
+        uint8_t             *buf;
 
         BList               fDriveList;
         BString*            fDrivePath;
