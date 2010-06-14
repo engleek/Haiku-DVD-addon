@@ -427,14 +427,14 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     tt_dump = 0;
     dvdbuf = mem;
 
-    uint32 *buffer, *p;
-    p = buffer = (uint32 *)malloc(2048);
+    uint8_t *buffer, *p;
+    p = buffer = (uint8_t *)malloc(DVD_VIDEO_LB_LEN);
     if (!buffer) {
         PRINTF(0, ("Connect: Out of memory\n"));
         return;
     }
     bigtime_t now = system_time();
-    dvdnav_get_next_block(dvdnav, dvdbuf, &event, &len);
+    dvdnav_get_next_block(dvdnav, p, &event, &len);
     fProcessingLatency = system_time() - now;
     free(buffer);
 
@@ -695,7 +695,7 @@ DVDMediaNode::FrameGenerator()
         media_header *h = buffer->Header();
         h->type = B_MEDIA_MULTISTREAM;
         h->time_source = TimeSource()->ID();
-        h->size_used = 2048;
+        h->size_used = DVD_VIDEO_LB_LEN;
         /* For a buffer originating from a device, you might want to calculate
          * this based on the PerformanceTimeFor the time your buffer arrived at
          * the hardware (plus any applicable adjustments). */
@@ -719,6 +719,7 @@ DVDMediaNode::FrameGenerator()
         switch (event) {
         case DVDNAV_BLOCK_OK:
             // Regular MPEG block: Send the buffer on down to the consumer
+            p = dvdbuf;
             if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
                 printf("DVD: FrameGenerator: Error sending buffer\n");
                 buffer->Recycle();
