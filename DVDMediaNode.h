@@ -123,8 +123,8 @@ private:
 
         thread_id           fThread;
         sem_id              fFrameSync;
-static  int32               _frame_generator_(void *data);
-        int32               FrameGenerator();
+static  int32               _stream_generator_(void *data);
+        int32               StreamGenerator();
 
         /* The remaining variables should be declared volatile, but they
          * are not here to improve the legibility of the sample code. */

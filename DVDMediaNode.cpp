@@ -592,7 +592,7 @@ DVDMediaNode::HandleStart(bigtime_t performance_time)
     if (fFrameSync < B_OK)
         goto err1;
 
-    fThread = spawn_thread(_frame_generator_, "frame generator",
+    fThread = spawn_thread(_stream_generator_, "stream generator",
             B_NORMAL_PRIORITY, this);
     if (fThread < B_OK)
         goto err2;
@@ -647,7 +647,7 @@ DVDMediaNode::HandleSeek(bigtime_t performance_time)
 /* The following functions form the thread that generates frames. You should
  * replace this with the code that interfaces to your hardware. */
 int32
-DVDMediaNode::FrameGenerator()
+DVDMediaNode::StreamGenerator()
 {
     bigtime_t wait_until = system_time();
 
@@ -728,7 +728,7 @@ DVDMediaNode::FrameGenerator()
             // Regular MPEG block: Send the buffer on down to the consumer
             p = dvdbuf;
             if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
-                printf("DVD: FrameGenerator: Error sending buffer\n");
+                printf("DVD: StreamGenerator: Error sending buffer\n");
                 buffer->Recycle();
             }
 
@@ -855,9 +855,9 @@ DVDMediaNode::FrameGenerator()
 }
 
 int32
-DVDMediaNode::_frame_generator_(void *data)
+DVDMediaNode::_stream_generator_(void *data)
 {
-    return ((DVDMediaNode *)data)->FrameGenerator();
+    return ((DVDMediaNode *)data)->StreamGenerator();
 }
 
 bool
