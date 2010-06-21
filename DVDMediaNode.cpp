@@ -43,6 +43,8 @@
 
 #define DVD_LANGUAGE "en"
 
+//#define DVD_VIDEO_LB_LEN 1024000
+
 DVDMediaNode::DVDMediaNode(
         BMediaAddOn *addon, const char *name, int32 internal_id)
   : BMediaNode(name),
@@ -75,6 +77,7 @@ DVDMediaNode::DVDMediaNode(
     const char *path;
     dvdnav_path(dvdnav, &path);
     printf("DVD Path: %s\n", path);
+    printf("Block size: %i\n", DVD_VIDEO_LB_LEN);
 
     dvdnav_menu_language_select(dvdnav, DVD_LANGUAGE);
     dvdnav_audio_language_select(dvdnav, DVD_LANGUAGE);
@@ -115,11 +118,6 @@ DVDMediaNode::AddOn(int32 *internal_id) const
     return fAddOn;
 }
 
-status_t
-DVDMediaNode::HandleMessage(int32 message, const void *data, size_t size)
-{
-    return B_ERROR;
-}
 
 void
 DVDMediaNode::Preroll()
@@ -415,11 +413,10 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     fConnectedFormat = format.u.multistream;
 
     /* get the latency */
-    bigtime_t latency = 0;
+    bigtime_t latency = 50;
     media_node_id tsID = 0;
     FindLatencyFor(fOutput.destination, &latency, &tsID);
-    #define NODE_LATENCY 1000
-    SetEventLatency(latency + NODE_LATENCY);
+    SetEventLatency(latency);
 
     finished = 0;
     output_fd = 0;
@@ -427,7 +424,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     tt_dump = 0;
     dvdbuf = mem;
 
-    uint8_t *buffer, *p;
+/*    uint8_t *buffer, *p;
     p = buffer = (uint8_t *)malloc(DVD_VIDEO_LB_LEN);
     if (!buffer) {
         PRINTF(0, ("Connect: Out of memory\n"));
@@ -436,7 +433,9 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     bigtime_t now = system_time();
     dvdnav_get_next_block(dvdnav, p, &event, &len);
     fProcessingLatency = system_time() - now;
-    free(buffer);
+    free(buffer); */
+
+    fProcessingLatency = 50;
 
     /* Create the buffer group */
     fBufferGroup = new BBufferGroup(4 * WIDTH *
@@ -565,6 +564,13 @@ DVDMediaNode::StartControlPanel(BMessenger *out_messenger)
 
 /* DVDMediaNode */
 
+status_t
+DVDMediaNode::HandleMessage(int32 message, const void *data, size_t size)
+{
+    return B_ERROR;
+}
+
+
 void
 DVDMediaNode::HandleStart(bigtime_t performance_time)
 {
@@ -685,9 +691,7 @@ DVDMediaNode::FrameGenerator()
         BAutolock _(fLock);
 
         /* Fetch a buffer from the buffer group */
-        BBuffer *buffer = fBufferGroup->RequestBuffer(
-                        4 * WIDTH *
-                        HEIGHT, 0LL);
+        BBuffer *buffer = fBufferGroup->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
         if (!buffer)
             continue;
 
@@ -710,6 +714,9 @@ DVDMediaNode::FrameGenerator()
         uint8_t *p = (uint8_t *)buffer->Data();
 
         result = dvdnav_get_next_block(dvdnav, dvdbuf, &event, &len);
+
+        //printf("Buffer Size used: %i", &h->size_used);
+        //printf("Buffer len      : %i", &len);
 
         if (result == DVDNAV_STATUS_ERR) {
             printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(dvdnav));
@@ -816,12 +823,14 @@ DVDMediaNode::FrameGenerator()
                         btni->x_end, btni->y_end);
                     }
 
-                    button = 0; // First button, generally the start film button
+                    //button = 1; // First button, generally the start film button
 
-                    printf("DVD: Selecting button %i...\n", button);
+                    //printf("DVD: Selecting button %i...\n", button);
                     /* This is the point where applications with fifos have to hand in a NAV packet
                     * which has traveled through the fifos. See the notes above. */
-                    dvdnav_button_select_and_activate(dvdnav, pci, button);
+                    //dvdnav_button_select_and_activate(dvdnav, pci, button);
+                    printf("Looks like this is the end...\n");
+                    finished = 1;
                 }
             }
             break;
