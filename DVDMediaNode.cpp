@@ -43,7 +43,7 @@
 
 #define DVD_LANGUAGE "en"
 
-//#define DVD_VIDEO_LB_LEN 1024000
+//#define DVD_VIDEO_LB_LEN 4096
 
 DVDMediaNode::DVDMediaNode(
         BMediaAddOn *addon, const char *name, int32 internal_id)
@@ -61,7 +61,7 @@ DVDMediaNode::DVDMediaNode(
 
     fThread = -1;
     fFrameSync = -1;
-    fProcessingLatency = 0LL;
+    fProcessingLatency = 50;
 
     fRunning = false;
     fConnected = false;
@@ -77,7 +77,6 @@ DVDMediaNode::DVDMediaNode(
     const char *path;
     dvdnav_path(dvdnav, &path);
     printf("DVD Path: %s\n", path);
-    printf("Block size: %i\n", DVD_VIDEO_LB_LEN);
 
     dvdnav_menu_language_select(dvdnav, DVD_LANGUAGE);
     dvdnav_audio_language_select(dvdnav, DVD_LANGUAGE);
@@ -422,7 +421,6 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     output_fd = 0;
     dump = 0;
     tt_dump = 0;
-    dvdbuf = mem;
 
 /*    uint8_t *buffer, *p;
     p = buffer = (uint8_t *)malloc(DVD_VIDEO_LB_LEN);
@@ -438,8 +436,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     fProcessingLatency = 50;
 
     /* Create the buffer group */
-    fBufferGroup = new BBufferGroup(4 * WIDTH *
-            HEIGHT, 8);
+    fBufferGroup = new BBufferGroup(DVD_VIDEO_LB_LEN, 32); // Why 8?
     if (fBufferGroup->InitCheck() < B_OK) {
         delete fBufferGroup;
         fBufferGroup = NULL;
@@ -711,9 +708,9 @@ DVDMediaNode::StreamGenerator()
         h->orig_size = 0;
         h->data_offset = 0;
 
-        uint8_t *p = (uint8_t *)buffer->Data();
+        //uint8_t *p = (uint8_t *)buffer->Data();
 
-        result = dvdnav_get_next_block(dvdnav, dvdbuf, &event, &len);
+        result = dvdnav_get_next_block(dvdnav, (uint8_t *)buffer->Data(), &event, &len);
 
         //printf("Buffer Size used: %i", &h->size_used);
         //printf("Buffer len      : %i", &len);
@@ -726,7 +723,6 @@ DVDMediaNode::StreamGenerator()
         switch (event) {
         case DVDNAV_BLOCK_OK:
             // Regular MPEG block: Send the buffer on down to the consumer
-            p = dvdbuf;
             if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
                 printf("DVD: StreamGenerator: Error sending buffer\n");
                 buffer->Recycle();
@@ -739,7 +735,7 @@ DVDMediaNode::StreamGenerator()
         case DVDNAV_STILL_FRAME:
             // Still frame: Find still time
             {
-                dvdnav_still_event_t *still_event = (dvdnav_still_event_t *)dvdbuf;
+                dvdnav_still_event_t *still_event = (dvdnav_still_event_t *)buffer->Data();
                 if (still_event->length < 0xff)
                     printf("DVD: Still frame: %d seconds\n", still_event->length);
                 else
@@ -769,7 +765,7 @@ DVDMediaNode::StreamGenerator()
         case DVDNAV_HIGHLIGHT:
             // Button highlight
             {
-                dvdnav_highlight_event_t *highlight_event = (dvdnav_highlight_event_t *)dvdbuf;
+                dvdnav_highlight_event_t *highlight_event = (dvdnav_highlight_event_t *)buffer->Data();
                 printf("DVD: Selected button %d\n", highlight_event->buttonN);
             }
             break;
@@ -823,14 +819,12 @@ DVDMediaNode::StreamGenerator()
                         btni->x_end, btni->y_end);
                     }
 
-                    //button = 1; // First button, generally the start film button
+                    button = 1; // First button, generally the start film button
 
-                    //printf("DVD: Selecting button %i...\n", button);
+                    printf("DVD: Selecting button %i...\n", button);
                     /* This is the point where applications with fifos have to hand in a NAV packet
                     * which has traveled through the fifos. See the notes above. */
-                    //dvdnav_button_select_and_activate(dvdnav, pci, button);
-                    printf("Looks like this is the end...\n");
-                    finished = 1;
+                    dvdnav_button_select_and_activate(dvdnav, pci, button);
                 }
             }
             break;
