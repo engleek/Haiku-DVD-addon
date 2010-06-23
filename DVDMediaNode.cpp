@@ -37,10 +37,6 @@
 
 #include "DVDMediaNode.h"
 
-#define WIDTH 720
-#define HEIGHT 576
-#define FIELD_RATE 25.f
-
 #define DVD_LANGUAGE "en"
 
 //#define DVD_VIDEO_LB_LEN 4096
@@ -158,9 +154,6 @@ DVDMediaNode::NodeRegistered()
     fOutput.format.type = B_MEDIA_MULTISTREAM;
     fOutput.format.u.multistream = media_multistream_format::wildcard;
     fOutput.format.u.multistream.format = media_multistream_format::B_MPEG2;
-    fOutput.format.u.multistream.u.vid.frame_rate = FIELD_RATE;
-    fOutput.format.u.multistream.u.vid.width = WIDTH;
-    fOutput.format.u.multistream.u.vid.height = HEIGHT;
 
     /* Start the BMediaEventLooper control loop running */
     Run();
@@ -403,10 +396,7 @@ DVDMediaNode::Connect(status_t error, const media_source &source,
     fOutput.destination = destination;
     strcpy(io_name, fOutput.name);
 
-    fPerformanceTimeBase = fPerformanceTimeBase +
-            (bigtime_t)
-                ((fFrame - fFrameBase) *
-                (1000000 / FIELD_RATE));
+    fPerformanceTimeBase = fPerformanceTimeBase + fProcessingLatency;
     fFrameBase = fFrame;
 
     fConnectedFormat = format.u.multistream;
@@ -648,7 +638,7 @@ DVDMediaNode::StreamGenerator()
 {
     bigtime_t wait_until = system_time();
 
-    while (!finished) {
+    while (1) {
         status_t err = acquire_sem_etc(fFrameSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
@@ -657,21 +647,6 @@ DVDMediaNode::StreamGenerator()
          * DVDMediaNode::HandleStop(), will trigger this behavior. */
         if ((err != B_OK) && (err != B_TIMED_OUT))
             break;
-
-        fFrame++;
-
-        /* Recalculate the time until the thread should wake up to begin
-         * processing the next frame. Subtract fProcessingLatency so that
-         * the frame is sent in time. */
-        wait_until = TimeSource()->RealTimeFor(fPerformanceTimeBase +
-                (bigtime_t)
-                        ((fFrame - fFrameBase) *
-                        (1000000 / FIELD_RATE)), 0) -
-                fProcessingLatency;
-
-        /* Drop frame if it's at least a frame late */
-        if (wait_until < system_time())
-            continue;
 
         /* If the semaphore was acquired successfully, it means something
          * changed the timing information (see DVDMediaNode::Connect()) and
@@ -697,27 +672,17 @@ DVDMediaNode::StreamGenerator()
         h->type = B_MEDIA_MULTISTREAM;
         h->time_source = TimeSource()->ID();
         h->size_used = DVD_VIDEO_LB_LEN;
-        /* For a buffer originating from a device, you might want to calculate
-         * this based on the PerformanceTimeFor the time your buffer arrived at
-         * the hardware (plus any applicable adjustments). */
-        h->start_time = fPerformanceTimeBase +
-                        (bigtime_t)
-                            ((fFrame - fFrameBase) *
-                            (1000000 / FIELD_RATE));
+        h->start_time = fPerformanceTimeBase + fProcessingLatency;
         h->file_pos = 0;
         h->orig_size = 0;
         h->data_offset = 0;
 
-        //uint8_t *p = (uint8_t *)buffer->Data();
 
         result = dvdnav_get_next_block(dvdnav, (uint8_t *)buffer->Data(), &event, &len);
 
-        //printf("Buffer Size used: %i", &h->size_used);
-        //printf("Buffer len      : %i", &len);
-
         if (result == DVDNAV_STATUS_ERR) {
             printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(dvdnav));
-            return -1;
+            return B_ERROR;
         }
 
         switch (event) {
@@ -840,7 +805,7 @@ DVDMediaNode::StreamGenerator()
             break;
         default:
             printf("DVD: Unknown event (%i)\n", event);
-            finished = 1;
+            HandleStop();
             break;
         }
     }
