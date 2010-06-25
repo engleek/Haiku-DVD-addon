@@ -36,7 +36,6 @@ virtual status_t    HandleMessage(int32 message, const void *data,
 protected:
 virtual void        Preroll();
 virtual void        SetTimeSource(BTimeSource * time_source);
-virtual status_t    RequestCompleted(const media_request_info & info);
 
 /* BMediaEventLooper */
 protected:
@@ -144,7 +143,6 @@ static  int32               _stream_generator_(void *data);
 
         dvdnav_t            *dvdnav;
         bool                fDVDLoaded;
-        uint8_t             mem[DVD_VIDEO_LB_LEN];
         int                 finished;
         int                 output_fd;
         int                 dump;
@@ -152,7 +150,6 @@ static  int32               _stream_generator_(void *data);
         int                 result;
         int                 event;
         int                 len;
-        uint8_t             *dvdbuf;
 
         BList               fDriveList;
         BString*            fDrivePath;

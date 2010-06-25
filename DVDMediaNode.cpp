@@ -39,6 +39,7 @@
 
 #define DVD_LANGUAGE "en"
 
+//#define DVD_VIDEO_LB_LEN 24576
 //#define DVD_VIDEO_LB_LEN 4096
 
 DVDMediaNode::DVDMediaNode(
@@ -126,12 +127,6 @@ DVDMediaNode::SetTimeSource(BTimeSource *time_source)
 {
     /* Tell frame generation thread to recalculate delay value */
     release_sem(fFrameSync);
-}
-
-status_t
-DVDMediaNode::RequestCompleted(const media_request_info &info)
-{
-    return BMediaNode::RequestCompleted(info);
 }
 
 /* BMediaEventLooper */
@@ -638,6 +633,8 @@ DVDMediaNode::StreamGenerator()
 {
     bigtime_t wait_until = system_time();
 
+    int record = 0;
+
     while (1) {
         status_t err = acquire_sem_etc(fFrameSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
@@ -690,9 +687,7 @@ DVDMediaNode::StreamGenerator()
             // Regular MPEG block: Send the buffer on down to the consumer
             if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
                 printf("DVD: StreamGenerator: Error sending buffer\n");
-                buffer->Recycle();
             }
-
             break;
         case DVDNAV_NOP:
             // No idea why this exists...
@@ -798,16 +793,15 @@ DVDMediaNode::StreamGenerator()
             * Applications with fifos should drop the fifos content to speed up responsiveness. */
             break;
         case DVDNAV_STOP:
-            /* Playback should end here. */
-            {
-                finished = 1;
-            }
+            HandleStop();
             break;
         default:
             printf("DVD: Unknown event (%i)\n", event);
             HandleStop();
             break;
         }
+
+        buffer->Recycle();
     }
 
     return B_OK;
