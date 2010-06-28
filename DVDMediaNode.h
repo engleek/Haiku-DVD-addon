@@ -121,14 +121,12 @@ private:
             BBufferGroup    *fBufferGroup;
 
         thread_id           fThread;
-        sem_id              fFrameSync;
+        sem_id              fStreamSync;
 static  int32               _stream_generator_(void *data);
         int32               StreamGenerator();
 
         /* The remaining variables should be declared volatile, but they
          * are not here to improve the legibility of the sample code. */
-        uint32              fFrame;
-        uint32              fFrameBase;
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;
         media_output        fOutput;
