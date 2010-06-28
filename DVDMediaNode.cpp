@@ -662,18 +662,12 @@ DVDMediaNode::StreamGenerator()
 
         switch (event) {
         case DVDNAV_BLOCK_OK:
-<<<<<<< HEAD
             {
                 // Regular MPEG block: Send the buffer on down to the consumer
                 if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
                     printf("DVD: StreamGenerator: Error sending buffer\n");
                     buffer->Recycle();
                 }
-=======
-            // Regular MPEG block: Send the buffer on down to the consumer
-            if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
-                printf("DVD: StreamGenerator: Error sending buffer\n");
->>>>>>> 2aa6924f8e7972d4e730a4c367a0dc0e819e9512
             }
             break;
         case DVDNAV_NOP:
@@ -793,15 +787,7 @@ DVDMediaNode::StreamGenerator()
             buffer->Recycle();
             break;
         case DVDNAV_STOP:
-<<<<<<< HEAD
-            /* Playback should end here. */
-            {
-                finished = 1;
-            }
-            buffer->Recycle();
-=======
             HandleStop();
->>>>>>> 2aa6924f8e7972d4e730a4c367a0dc0e819e9512
             break;
         default:
             printf("DVD: Unknown event (%i)\n", event);
