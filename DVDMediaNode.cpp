@@ -617,39 +617,22 @@ DVDMediaNode::StreamGenerator()
 {
     bigtime_t wait_until = system_time();
 
-    /* Fetch a buffer from the buffer group */
-    BBuffer *buffer = fBufferGroup->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
-    if (!buffer)
-        return B_OK; // Probably out of buffers, so not an error, we just need to wait
-
-    /* Fill out the details about this buffer. */
-    media_header *h = buffer->Header();
-    h->type = B_MEDIA_MULTISTREAM;
-    h->time_source = TimeSource()->ID();
-    h->size_used = DVD_VIDEO_LB_LEN;
-    h->start_time = fPerformanceTimeBase + fProcessingLatency;
-    h->file_pos = 0;
-    h->orig_size = 0;
-    h->data_offset = 0;
-
     while (1) {
         status_t err = acquire_sem_etc(fStreamSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
-        if (buffer == 0) {
-            BBuffer *buffer = fBufferGroup->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
-            if (buffer == 0)
-                continue;
+        BBuffer *buffer = fBufferGroup->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
+        if (!buffer)
+            continue;
 
-            media_header *h = buffer->Header();
-            h->type = B_MEDIA_MULTISTREAM;
-            h->time_source = TimeSource()->ID();
-            h->size_used = DVD_VIDEO_LB_LEN;
-            h->start_time = fPerformanceTimeBase + fProcessingLatency;
-            h->file_pos = 0;
-            h->orig_size = 0;
-            h->data_offset = 0;
-        }
+        media_header *h = buffer->Header();
+        h->type = B_MEDIA_MULTISTREAM;
+        h->time_source = TimeSource()->ID();
+        h->size_used = DVD_VIDEO_LB_LEN;
+        h->start_time = fPerformanceTimeBase + fProcessingLatency;
+        h->file_pos = 0;
+        h->orig_size = 0;
+        h->data_offset = 0;
 
         /* The only acceptable responses are B_OK and B_TIMED_OUT. Everything
          * else means the thread should quit. Deleting the semaphore, as in
@@ -686,8 +669,6 @@ DVDMediaNode::StreamGenerator()
                     printf("DVD: StreamGenerator: Error sending buffer\n");
                     buffer->Recycle();
                 }
-
-                buffer = 0;
             }
             break;
         case DVDNAV_NOP:
@@ -702,6 +683,8 @@ DVDMediaNode::StreamGenerator()
                 else
                     printf("DVD: Still frame: indefinite\n");
                 dvdnav_still_skip(dvdnav);
+
+                buffer->Recycle();
             }
             break;
         case DVDNAV_WAIT:
@@ -713,21 +696,26 @@ DVDMediaNode::StreamGenerator()
             * when they receive this type of event. */
             printf("DVD: Skipping wait condition\n");
             dvdnav_wait_skip(dvdnav);
+                buffer->Recycle();
             break;
         case DVDNAV_SPU_CLUT_CHANGE:
             // New colours!
+                buffer->Recycle();
             break;
         case DVDNAV_SPU_STREAM_CHANGE:
             // New stream
+                buffer->Recycle();
             break;
         case DVDNAV_AUDIO_STREAM_CHANGE:
             // Switch audio channels
+                buffer->Recycle();
             break;
         case DVDNAV_HIGHLIGHT:
             // Button highlight
             {
                 dvdnav_highlight_event_t *highlight_event = (dvdnav_highlight_event_t *)buffer->Data();
                 printf("DVD: Selected button %d\n", highlight_event->buttonN);
+                buffer->Recycle();
             }
             break;
         case DVDNAV_VTS_CHANGE:
@@ -735,6 +723,7 @@ DVDMediaNode::StreamGenerator()
             * not change inside a VTS. Therefore this event can be used to query such
             * information only when necessary and update the decoding/displaying
             * accordingly. */
+                buffer->Recycle();
             break;
         case DVDNAV_CELL_CHANGE:
             /* Some status information like the current Title and Part numbers do not
@@ -750,6 +739,7 @@ DVDMediaNode::StreamGenerator()
                 dvdnav_get_position(dvdnav, &pos, &len);
                 printf("DVD: Cell change: Title %d, Chapter %d\n", tt, ptt);
                 printf("DVD: At position %.0f%% inside the feature\n", 100 * (double)pos / (double)len);
+                buffer->Recycle();
             }
             break;
         case DVDNAV_NAV_PACKET:
@@ -789,17 +779,21 @@ DVDMediaNode::StreamGenerator()
                 }
             }
 
+                buffer->Recycle();
             break;
         case DVDNAV_HOP_CHANNEL:
             /* This event is issued whenever a non-seamless operation has been executed.
             * Applications with fifos should drop the fifos content to speed up responsiveness. */
+                buffer->Recycle();
             break;
         case DVDNAV_STOP:
             HandleStop();
+                buffer->Recycle();
             break;
         default:
             printf("DVD: Unknown event (%i)\n", event);
             HandleStop();
+                buffer->Recycle();
             break;
         }
     }
