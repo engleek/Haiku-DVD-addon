@@ -636,9 +636,9 @@ DVDMediaNode::StreamGenerator()
         status_t err = acquire_sem_etc(fStreamSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
-        if (buffer == null) {
+        if (buffer == 0) {
             BBuffer *buffer = fBufferGroup->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
-            if (buffer == null)
+            if (buffer == 0)
                 continue;
 
             media_header *h = buffer->Header();
@@ -687,7 +687,7 @@ DVDMediaNode::StreamGenerator()
                     buffer->Recycle();
                 }
 
-                buffer = null;
+                buffer = 0;
             }
             break;
         case DVDNAV_NOP:
