@@ -1,41 +1,48 @@
 #ifndef __DVDExtractorNode_H__
 #define __DVDExtractorNode_H__
 
-#include <BufferProducer.h>
+#include <Buffer.h>
 #include <BufferConsumer.h>
+#include <BufferGroup.h>
+#include <BufferProducer.h>
 #include <MediaEventLooper.h>
+#include <MediaDefs.h>
+#include <MediaNode.h>
+#include <MediaAddOn.h>
 
-// forwards
-class BBufferGroup;
-class BMediaAddOn;
+#include <vector>
 
 class DVDExtractorNode :
-	public		BBufferConsumer,
-	public		BBufferProducer,
-	public		BMediaEventLooper {
+	public BBufferConsumer,
+	public BBufferProducer,
+	public BMediaEventLooper
+{
 	
 public:
-	virtual ~FlangerNode();
-	FlangerNode(BMediaAddOn* pAddOn=0);
+	virtual ~DVDExtractorNode();
 
-// Media node
+	DVDExtractorNode(
+		const flavor_info *info = 0,
+		BMediaAddOn *addOn = 0);
+
+	virtual status_t InitCheck(void) const;
+	
+	virtual BMediaAddOn* AddOn(
+		int32* ID) const;
 	
 	virtual status_t HandleMessage(
 		int32 code,
-		const void* pData,
+		const void* data,
 		size_t size);
-
-	virtual BMediaAddOn* AddOn(
-		int32* poID) const;
 	
 protected:
 
 // BMediaEventLooper
 
 	virtual void HandleEvent(
-		const media_timed_event* pEvent,
+		const media_timed_event* event,
 		bigtime_t howLate,
-		bool realTimeEvent=false);
+		bool realTimeEvent = false);
 
 protected:
 
@@ -74,25 +81,25 @@ public:
 		
 	virtual status_t GetLatencyFor(
 		const media_destination& destination,
-		bigtime_t* poLatency,
-		media_node_id* poTimeSource);
+		bigtime_t* latency,
+		media_node_id* timeSource);
 		
 	virtual status_t GetNextInput(
-		int32* pioCookie,
-		media_input* poInput);
+		int32* cookie,
+		media_input* input);
 
 	virtual void ProducerDataStatus(
 		const media_destination& destination,
 		int32 status,
-		bigtime_t tpWhen);
+		bigtime_t when);
 	
 	virtual status_t SeekTagRequested(
 		const media_destination& destination,
 		bigtime_t targetTime,
-		uint32 flags,
-		media_seek_tag* poSeekTag,
-		bigtime_t* poTaggedTime,
-		uint32* poFlags);
+		uint32 in_flags,
+		media_seek_tag* seekTag,
+		bigtime_t* taggedTime,
+		uint32* out_flags);
 	
 public:	
 
@@ -102,7 +109,7 @@ public:
 		const media_source& source,
 		media_buffer_id previousBufferID,
 		bigtime_t previousTime,
-		const media_seek_tag* pPreviousTag);
+		const media_seek_tag* previousTag);
 		
 	virtual void Connect(
 		status_t status,
@@ -126,7 +133,7 @@ public:
 	virtual status_t FormatChangeRequested(
 		const media_source& source,
 		const media_destination& destination,
-		media_format* pioFormat,
+		media_format* format,
 		int32* _deprecated_);
 		
 	virtual status_t FormatProposal(
@@ -136,14 +143,14 @@ public:
 	virtual status_t FormatSuggestionRequested(
 		media_type type,
 		int32 quality,
-		media_format* poFormat);
+		media_format* format);
 		
 	virtual status_t GetLatency(
-		bigtime_t* poLatency);
+		bigtime_t* latency);
 		
 	virtual status_t GetNextOutput(
-		int32* pioCookie,
-		media_output* poOutput);
+		int32* cookie,
+		media_output* output);
 	
 	virtual void LatencyChanged(
 		const media_source& source,
@@ -154,18 +161,18 @@ public:
 	virtual void LateNoticeReceived(
 		const media_source& source,
 		bigtime_t howLate,
-		bigtime_t tpWhen);
+		bigtime_t when);
 	
 	virtual status_t PrepareToConnect(
 		const media_source& source,
 		const media_destination& destination,
-		media_format* pioFormat,
-		media_source* poSource,
-		char* poName);
+		media_format* format,
+		media_source* source,
+		char* name);
 		
 	virtual status_t SetBufferGroup(
 		const media_source& source,
-		BBufferGroup* pGroup);
+		BBufferGroup* group);
 	
 	virtual status_t SetPlayRate(
 		int32 numerator,
@@ -174,46 +181,40 @@ public:
 	virtual status_t VideoClippingChanged(
 		const media_source& source,
 		int16 numShorts,
-		int16* pClipData,
+		int16* clipData,
 		const media_video_display_info& display,
-		int32* poFromChangeTag);
+		int32* fromChangeTag);
 	
 protected:
 
 // HandleEvent() impl.
 
 	void handleParameterEvent(
-		const media_timed_event* pEvent);
+		const media_timed_event* event);
 		
 	void handleStartEvent(
-		const media_timed_event* pEvent);
+		const media_timed_event* event);
 		
 	void handleStopEvent(
-		const media_timed_event* pEvent);
+		const media_timed_event* event);
 		
 	void ignoreEvent(
-		const media_timed_event* pEvent);
+		const media_timed_event* event);
 
 protected:
 
 // internal operations
 
 	virtual void getPreferredFormat(
-		media_format& ioFormat);
+		media_format& format);
 		
 	status_t validateProposedFormat(
 		const media_format& preferredFormat,
-		media_format& ioProposedFormat);
+		media_format& proposedFormat);
 		
 	void specializeOutputFormat(
-		media_format& ioFormat);
-		
-	// set parameters to their default settings
-	virtual void initParameterValues();
-	
-	// create and register a parameter web
-	virtual void initParameterWeb();
-	
+		media_format& format);
+			
 	// construct delay line if necessary, reset filter state
 	virtual void initFilter();
 	
@@ -225,7 +226,7 @@ protected:
 	
 	// filter buffer data in place	
 	virtual void filterBuffer(
-		BBuffer* pBuffer); //nyi
+		BBuffer* buffer); //nyi
 		
 private:
 
@@ -233,47 +234,35 @@ private:
 
 	// The 'template' format
 	// +++++ init in NodeRegistered()
-	media_format			m_preferredFormat;
+	media_format			fPreferredFormat;
 
 	// The current input/output format (this filter doesn't do any
 	// on-the-fly conversion.)  Any fields that are not wildcards
 	// are mandatory; the first connection (input or output) decides
 	// the node's format.  If both input and output are disconnected,
 	// m_format.u.raw_audio should revert to media_raw_audio_format::wildcard.	
-	media_format			m_format;
+	media_format			fFormat;
 	
 	// Connections & associated state variables	
-	media_input				m_input;
+	media_input				fInput;
 
-	media_output			m_output;
-	bool							m_outputEnabled;
+	media_output			fOutput;
+	bool							fOutputEnabled;
 
 	// Time required by downstream consumer(s) to properly deliver a buffer
-	bigtime_t					m_downstreamLatency;
+	bigtime_t					fDownstreamLatency;
 
 	// Worst-case time needed to fill a buffer
-	bigtime_t					m_processingLatency;
-
-private:
-
-// filter state
-
-	// Frames sent since the filter started
-	uint64						m_framesSent;
+	bigtime_t					fProcessingLatency;
 	
-	// the buffer
-	AudioBuffer*			m_pDelayBuffer;
-	
-	// write position (buffer offset at which the next
-	// incoming frame will be stored)
-	uint32						m_delayWriteFrame;
+	status_t fInitCheckStatus;
 	
 private:					// *** add-on stuff
 
 	// host add-on
-	BMediaAddOn*	m_pAddOn;
+	BMediaAddOn	*fAddOn;
 	
-	static const char* const		s_nodeName;
+	//static const char* const		s_nodeName;
 };
 
 #endif /*__DVDExtractorNode_H__*/
