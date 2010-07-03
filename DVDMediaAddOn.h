@@ -36,8 +36,10 @@ public:
 
 private:
     status_t            fInitStatus;
-    flavor_info         fFlavorInfo;
-    media_format        fMediaFormat;
+    flavor_info         fMediaNodeFlavorInfo;
+    flavor_info         fExtractorNodeFlavorInfo;
+    media_format        fMultistreamMediaFormat;
+    media_format        fFinalStreamFormats[3];
 };
 
 #endif
