@@ -31,8 +31,8 @@ DVDAddOn::DVDAddOn(image_id imid)
     fFinalStreamFormats[0].type = B_MEDIA_ENCODED_AUDIO;
     fFinalStreamFormats[0].u.encoded_audio = media_encoded_audio_format::wildcard;
 
-    // Subs stream, don't know how to deal with this yet
-    fFinalStreamFormats[0].type = B_MEDIA_UNKNOWN_TYPE;
+    // Subs stream, don't know how to deal with this yet, so custom format
+    fFinalStreamFormats[0].type = B_MEDIA_FIRST_USER_TYPE;
     
     // Note: There might be a fourth data stream
 
