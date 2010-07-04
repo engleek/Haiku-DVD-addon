@@ -177,7 +177,7 @@ DVDDemuxerNode::AcceptFormat(
 		return B_MEDIA_BAD_DESTINATION;
 	}
 	if(format->type != B_MEDIA_MULTISTREAM) {
-		PRINT(("\tnot B_MEDIA_RAW_AUDIO\n"));
+		PRINT(("\tnot B_MEDIA_MULTISTREAM\n"));
 		return B_MEDIA_BAD_FORMAT;
 	}
 
@@ -185,6 +185,7 @@ DVDDemuxerNode::AcceptFormat(
 		(fFormat.u.multistream.format != media_multistream_format::wildcard.format) ?
 			fFormat : fPreferredFormat,
 		*format);
+		
 	return B_OK;
 }
 
@@ -206,24 +207,26 @@ DVDDemuxerNode::BufferReceived(
 		PRINT(("* timesource mismatch\n"));
 	}
 
-	// check output
-/*	if(fOutput.destination == media_destination::null ||
-		!fOutputsEnabled) {
+	// check outputs
+	if(fOutput[0].destination == media_destination::null
+	   || fOutput.destination == media_destination::null
+	   || fOutput.destination == media_destination::null
+	   || !fOutputsEnabled) {
 		buffer->Recycle();
 		return;
 	}
-*/
+
 	// process and retransmit buffer
 	// !!!!!!!!!!!!!!!!!!!!
-  // Extractor action here!
-  // !!!!!!!!!!!!!!!!!!!!
-/*
-	status_t err = SendBuffer(buffer, fOutput.source, fOutput.destination);
+	// Extractor action here!
+	// !!!!!!!!!!!!!!!!!!!!
+
+	status_t err = SendBuffer(buffer, fOutput[0].source, fOutput[0].destination);
 	if (err < B_OK) {
 		PRINT(("DVDDemuxerNode::BufferReceived():\n"
 			"\tSendBuffer() failed: %s\n", strerror(err)));
 		buffer->Recycle();
-	}*/
+	}
 }
 
 
@@ -492,17 +495,19 @@ DVDDemuxerNode::DisposeOutputCookie(
 }
 
 void
-DVDDemuxerNode::EnableOutput(
+DVDDemuxerNode::EnableOutputs(
 	const media_source& source,
 	bool enabled,
 	int32* _deprecated_)
 {
-	PRINT(("DVDDemuxerNode::EnableOutput()\n"));
-/*	if(source != fOutput.source) {
+	PRINT(("DVDDemuxerNode::EnableOutputs()\n"));
+	if(source != fOutput[0].source
+	   || source != fOutput[1].source
+	   || source != fOutput[2].source) {
 		PRINT(("\tbad source\n"));
 		return;
 	}
-*/
+
 	fOutputsEnabled = enabled;
 }
 
@@ -806,7 +811,7 @@ status_t DVDDemuxerNode::validateProposedFormat(
 	char formatStr[256];
 	PRINT(("DVDDemuxerNode::validateProposedFormat()\n"));
 
-	ASSERT(preferredFormat.type == B_MEDIA_RAW_AUDIO);
+	ASSERT(preferredFormat.type == B_MEDIA_MULTISTREAM);
 
 	string_for_format(preferredFormat, formatStr, 255);
 	PRINT(("\ttemplate format: %s\n", formatStr));
@@ -816,56 +821,24 @@ status_t DVDDemuxerNode::validateProposedFormat(
 
 	status_t err = B_OK;
 
-	if(proposedFormat.type != B_MEDIA_RAW_AUDIO) {
+	if(proposedFormat.type != B_MEDIA_MULTISTREAM) {
 		// out of the ballpark
 		proposedFormat = preferredFormat;
 		return B_MEDIA_BAD_FORMAT;
 	}
 
 	// wildcard format
-	media_raw_audio_format& wild = media_raw_audio_format::wildcard;
+	media_multistream_format& wild = media_multistream_format::wildcard;
 	// proposed format
-	media_raw_audio_format& f = proposedFormat.u.raw_audio;
+	media_multistream_format& f = proposedFormat.u.multistream;
 	// template format
-	const media_raw_audio_format& pref = preferredFormat.u.raw_audio;
-
-	if(pref.frame_rate != wild.frame_rate) {
-		if(f.frame_rate != pref.frame_rate) {
-			if(f.frame_rate != wild.frame_rate)
-				err = B_MEDIA_BAD_FORMAT;
-			f.frame_rate = pref.frame_rate;
-		}
-	}
-
-	if(pref.channel_count != wild.channel_count) {
-		if(f.channel_count != pref.channel_count) {
-			if(f.channel_count != wild.channel_count)
-				err = B_MEDIA_BAD_FORMAT;
-			f.channel_count = pref.channel_count;
-		}
-	}
+	const media_multistream_format& pref = preferredFormat.u.multistream;
 
 	if(pref.format != wild.format) {
 		if(f.format != pref.format) {
 			if(f.format != wild.format)
 				err = B_MEDIA_BAD_FORMAT;
 			f.format = pref.format;
-		}
-	}
-
-	if(pref.byte_order != wild.byte_order) {
-		if(f.byte_order != pref.byte_order) {
-			if(f.byte_order != wild.byte_order)
-				err = B_MEDIA_BAD_FORMAT;
-			f.byte_order = pref.byte_order;
-		}
-	}
-
-	if(pref.buffer_size != wild.buffer_size) {
-		if(f.buffer_size != pref.buffer_size) {
-			if(f.buffer_size != wild.buffer_size)
-				err = B_MEDIA_BAD_FORMAT;
-			f.buffer_size = pref.buffer_size;
 		}
 	}
 
