@@ -216,17 +216,14 @@ protected:
 	void specializeOutputFormat(
 		media_format& format);
 			
-	// construct delay line if necessary, reset filter state
-	virtual void initFilter();
-	
-	virtual void startFilter();
-	virtual void stopFilter();
+	virtual void start();
+	virtual void stop();
 
 	// figure processing latency by doing 'dry runs' of filterBuffer()
 	virtual bigtime_t calcProcessingLatency();
 	
 	// filter buffer data in place	
-	virtual void filterBuffer(
+	virtual void buffer(
 		BBuffer* buffer); //nyi
 		
 private:

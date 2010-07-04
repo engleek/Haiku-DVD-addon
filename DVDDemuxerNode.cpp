@@ -33,16 +33,16 @@ DVDDemuxerNode::DVDDemuxerNode(const flavor_info *info, BMediaAddOn* addOn) :
 	BBufferProducer(B_MEDIA_UNKNOWN_TYPE),
 	BMediaEventLooper(),
 
+	// flavor
+	fFlavorInfo(*info),
+
 	// connection state
 	fOutputsEnabled(true),
 	fDownstreamLatency(0),
 	fProcessingLatency(0),
 
 	// add-on
-	fAddOn(addOn),
-	
-	// flavor
-	fFlavorInfo(*info)
+	fAddOn(addOn)
 {}
 
 
@@ -208,20 +208,21 @@ DVDDemuxerNode::BufferReceived(
 	}
 
 	// check outputs
-	if(fOutput[0].destination == media_destination::null
-	   || fOutput.destination == media_destination::null
-	   || fOutput.destination == media_destination::null
-	   || !fOutputsEnabled) {
+	if(fOutputs[0].destination == media_destination::null
+	|| fOutputs[1].destination == media_destination::null
+	|| fOutputs[2].destination == media_destination::null
+	|| !fOutputsEnabled) {
 		buffer->Recycle();
 		return;
 	}
 
-	// process and retransmit buffer
-	// !!!!!!!!!!!!!!!!!!!!
-	// Extractor action here!
-	// !!!!!!!!!!!!!!!!!!!!
+	/***********************
+	 * Extractor action here
+	 * 1 buffer goes in
+	 * 3 buffers come out
+	 ***********************/
 
-	status_t err = SendBuffer(buffer, fOutput[0].source, fOutput[0].destination);
+	status_t err = SendBuffer(buffer, fOutputs[0].source, fOutputs[0].destination);
 	if (err < B_OK) {
 		PRINT(("DVDDemuxerNode::BufferReceived():\n"
 			"\tSendBuffer() failed: %s\n", strerror(err)));
@@ -283,12 +284,14 @@ DVDDemuxerNode::Disconnected(
 
 	// mark disconnected
 	fInput.source = media_source::null;
-/*
+
 	// no output? clear format:
-	if(fOutput.destination == media_destination::null) {
-		fFormat.u.raw_audio = media_raw_audio_format::wildcard;
+	if(fOutputs[0].destination == media_destination::null
+	|| fOutputs[1].destination == media_destination::null
+	|| fOutputs[2].destination == media_destination::null) {
+		fFormat.u.multistream = media_multistream_format::wildcard;
 	}
-*/
+
 	fInput.format = fFormat;
 }
 
@@ -328,6 +331,7 @@ DVDDemuxerNode::GetLatencyFor(
 	*latency = fDownstreamLatency + fProcessingLatency;
 	PRINT(("\treturning %Ld\n", *latency));
 	*timeSource = TimeSource()->ID();
+	
 	return B_OK;
 }
 
@@ -343,6 +347,7 @@ DVDDemuxerNode::GetNextInput(
 
 	++*cookie;
 	*input = fInput;
+	
 	return B_OK;
 }
 
@@ -359,17 +364,39 @@ DVDDemuxerNode::ProducerDataStatus(
 	if(destination != fInput.destination) {
 		PRINT(("\tbad destination\n"));
 	}
-/*
-	if(fOutput.destination != media_destination::null) {
+
+	if(fOutputs[0].destination != media_destination::null) {
 		// pass status downstream
 		status_t err = SendDataStatus(
 			status,
-			fOutput.destination,
+			fOutputs[0].destination,
 			when);
 		if(err < B_OK) {
 			PRINT(("\tSendDataStatus(): %s\n", strerror(err)));
 		}
-	} */
+	}
+
+	if(fOutputs[1].destination != media_destination::null) {
+		// pass status downstream
+		status_t err = SendDataStatus(
+			status,
+			fOutputs[1].destination,
+			when);
+		if(err < B_OK) {
+			PRINT(("\tSendDataStatus(): %s\n", strerror(err)));
+		}
+	}
+
+	if(fOutputs[2].destination != media_destination::null) {
+		// pass status downstream
+		status_t err = SendDataStatus(
+			status,
+			fOutputs[2].destination,
+			when);
+		if(err < B_OK) {
+			PRINT(("\tSendDataStatus(): %s\n", strerror(err)));
+		}
+	}
 }
 
 
@@ -415,31 +442,31 @@ DVDDemuxerNode::Connect(
 {
 
 	PRINT(("DVDDemuxerNode::Connect()\n"));
-	status_t err;
+	//status_t err;
+
+	if (fOutputs[0].source == source) {
+		fOutputs[0].format = format;
+		fOutputs[0].destination = destination;
+		strcpy(name, fOutputs[0].name);
+	} else if (fOutputs[1].source == source) {
+		fOutputs[1].format = format;
+		fOutputs[1].destination = destination;
+		strcpy(name, fOutputs[1].name);
+	} else if (fOutputs[2].source == source) {
+		fOutputs[2].format = format;
+		fOutputs[2].destination = destination;
+		strcpy(name, fOutputs[2].name);
+	} else {
+		// we don't have that output
+		fprintf(stderr,"<- B_MEDIA_BAD_SOURCE\n");
+		return;
+	}
 
 	// connection failed?
 	if(status < B_OK) {
 		PRINT(("\tStatus: %s\n", strerror(status)));
-		// 'unreserve' the output
-		//fOutput.destination = media_destination::null;
 		return;
 	}
-
-	// connection established:
-	//strncpy(name, fOutput.name, B_MEDIA_NAME_LENGTH);
-	//fOutput.destination = destination;
-	fFormat = format;
-
-	// figure downstream latency
-	media_node_id timeSource;
-/*	err = FindLatencyFor(fOutput.destination, &fDownstreamLatency, &timeSource);
-	if(err < B_OK) {
-		PRINT(("\t!!! FindLatencyFor(): %s\n", strerror(err)));
-	}
-	PRINT(("\tdownstream latency = %Ld\n", fDownstreamLatency));
-*/
-	// prepare the filter
-	initFilter();
 
 	// figure processing time
 	fProcessingLatency = calcProcessingLatency();
@@ -448,6 +475,8 @@ DVDDemuxerNode::Connect(
 	// store summed latency
 	SetEventLatency(fDownstreamLatency + fProcessingLatency);
 
+// Sending latency upstream to the DVDDisk node isn't really necessary
+/*
 	if(fInput.source != media_source::null) {
 		// pass new latency upstream
 		err = SendLatencyChange(
@@ -457,6 +486,7 @@ DVDDemuxerNode::Connect(
 		if(err < B_OK)
 			PRINT(("\t!!! SendLatencyChange(): %s\n", strerror(err)));
 	}
+*/
 }
 
 void
@@ -467,24 +497,42 @@ DVDDemuxerNode::Disconnect(
 	PRINT(("DVDDemuxerNode::Disconnect()\n"));
 
 	// sanity checks
-/*	if(source != fOutput.source) {
+	if (source == fOutputs[0].source) {
+		if(destination != fOutputs[0].destination) {
+			PRINT(("\tbad destination\n"));
+			return;
+		}
+		
+		// clean up
+		fOutputs[0].destination = media_destination::null;
+		fOutputs[0].format = fFormat;
+	} else if (source == fOutputs[1].source) {
+		if(destination != fOutputs[1].destination) {
+			PRINT(("\tbad destination\n"));
+			return;
+		}
+		
+		// clean up
+		fOutputs[1].destination = media_destination::null;
+		fOutputs[1].format = fFormat;
+	} else if (source == fOutputs[2].source) {
+		if(destination != fOutputs[2].destination) {
+			PRINT(("\tbad destination\n"));
+			return;
+		}
+
+		// clean up
+		fOutputs[2].destination = media_destination::null;
+		fOutputs[2].format = fFormat;
+	} else {
 		PRINT(("\tbad source\n"));
 		return;
 	}
-	if(destination != fOutput.destination) {
-		PRINT(("\tbad destination\n"));
-		return;
-	}
 
-	// clean up
-	fOutput.destination = media_destination::null;
-*/
 	// no input? clear format:
 	if(fInput.source == media_source::null) {
-		fFormat.u.raw_audio = media_raw_audio_format::wildcard;
+		fFormat.u.multistream = media_multistream_format::wildcard;
 	}
-
-	//fOutput.format = fFormat;
 }
 
 status_t
@@ -495,15 +543,15 @@ DVDDemuxerNode::DisposeOutputCookie(
 }
 
 void
-DVDDemuxerNode::EnableOutputs(
+DVDDemuxerNode::EnableOutput(
 	const media_source& source,
 	bool enabled,
 	int32* _deprecated_)
 {
-	PRINT(("DVDDemuxerNode::EnableOutputs()\n"));
-	if(source != fOutput[0].source
-	   || source != fOutput[1].source
-	   || source != fOutput[2].source) {
+	PRINT(("DVDDemuxerNode::EnableOutput()\n"));
+	if(source != fOutputs[0].source
+	   || source != fOutputs[1].source
+	   || source != fOutputs[2].source) {
 		PRINT(("\tbad source\n"));
 		return;
 	}
@@ -532,21 +580,22 @@ DVDDemuxerNode::FormatProposal(
 	const media_source& source,
 	media_format* format)
 {
-
 	PRINT(("DVDDemuxerNode::FormatProposal()\n"));
 
-/*	if(source != fOutput.source) {
+	if(source != fOutputs[0].source
+	&& source != fOutputs[1].source
+	&& source != fOutputs[2].source) {
 		PRINT(("\tbad source\n"));
 		return B_MEDIA_BAD_SOURCE;
 	}
-*/
-	if(format->type != B_MEDIA_RAW_AUDIO) {
+
+	if(format->type != B_MEDIA_MULTISTREAM) {
 		PRINT(("\tbad type\n"));
 		return B_MEDIA_BAD_FORMAT;
 	}
 
 	validateProposedFormat(
-		(fFormat.u.raw_audio.format != media_raw_audio_format::wildcard.format) ?
+		(fFormat.u.multistream.format != media_multistream_format::wildcard.format) ?
 			fFormat :
 			fPreferredFormat,
 		*format);
@@ -562,12 +611,12 @@ DVDDemuxerNode::FormatSuggestionRequested(
 {
 	PRINT(("DVDDemuxerNode::FormatSuggestionRequested()\n"));
 
-	if(type != B_MEDIA_RAW_AUDIO) {
+	if(type != B_MEDIA_MULTISTREAM) {
 		PRINT(("\tbad type\n"));
 		return B_MEDIA_BAD_FORMAT;
 	}
 
-	if(fFormat.u.raw_audio.format != media_raw_audio_format::wildcard.format)
+	if(fFormat.u.multistream.format != media_multistream_format::wildcard.format)
 		*format = fFormat;
 	else
 		*format = fPreferredFormat;
@@ -608,20 +657,26 @@ DVDDemuxerNode::LatencyChanged(
 	uint32 flags)
 {
 	PRINT(("DVDDemuxerNode::LatencyChanged()\n"));
-/*
-	if(source != fOutput.source) {
-		PRINT(("\tBad source.\n"));
+
+	if(source != fOutputs[0].source
+	&& source != fOutputs[1].source
+	&& source != fOutputs[2].source) {
+		PRINT(("\tBad source\n"));
 		return;
 	}
 
-	if(destination != fOutput.destination) {
-		PRINT(("\tBad destination.\n"));
+	if(destination != fOutputs[0].destination
+	&& destination != fOutputs[1].destination
+	&& destination != fOutputs[2].destination) {
+		PRINT(("\tBad destination\n"));
 		return;
 	}
-*/
+
 	fDownstreamLatency = newLatency;
 	SetEventLatency(fDownstreamLatency + fProcessingLatency);
 
+// Again, not sure this is necessary
+/*
 	if(fInput.source != media_source::null) {
 		// pass new latency upstream
 		status_t err = SendLatencyChange(
@@ -631,6 +686,7 @@ DVDDemuxerNode::LatencyChanged(
 		if(err < B_OK)
 			PRINT(("\t!!! SendLatencyChange(): %s\n", strerror(err)));
 	}
+*/
 }
 
 void
@@ -642,12 +698,14 @@ DVDDemuxerNode::LateNoticeReceived(
 	PRINT(("DVDDemuxerNode::LateNoticeReceived()\n"
 		"\thowLate == %Ld\n"
 		"\twhen    == %Ld\n", howLate, when));
-/*
-	if(source != fOutput.source) {
-		PRINT(("\tBad source.\n"));
+
+	if(source != fOutputs[0].source
+	&& source != fOutputs[1].source
+	&& source != fOutputs[2].source) {
+		PRINT(("\tBad source\n"));
 		return;
 	}
-*/
+
 	if(fInput.source == media_source::null) {
 		PRINT(("\t!!! No input to blame.\n"));
 		return;
@@ -672,25 +730,29 @@ DVDDemuxerNode::PrepareToConnect(
 	string_for_format(*format, formatStr, 255);
 	PRINT(("DVDDemuxerNode::PrepareToConnect()\n"
 		"\tproposed format: %s\n", formatStr));
-/*
-	if(source != fOutput.source) {
-		PRINT(("\tBad source.\n"));
+
+	if(source != fOutputs[0].source
+	&& source != fOutputs[1].source
+	&& source != fOutputs[2].source) {
+		PRINT(("\tBad source\n"));
 		return B_MEDIA_BAD_SOURCE;
 	}
 
-	if(fOutput.destination != media_destination::null) {
+	if(fOutputs[0].destination != media_destination::null
+	&& fOutputs[1].destination != media_destination::null
+	&& fOutputs[2].destination != media_destination::null) {
 		PRINT(("\tAlready connected.\n"));
 		return B_MEDIA_ALREADY_CONNECTED;
 	}
-*/
-	if(format->type != B_MEDIA_RAW_AUDIO) {
+
+	if(format->type != B_MEDIA_MULTISTREAM) {
 		PRINT(("\tBad format type.\n"));
 		return B_MEDIA_BAD_FORMAT;
 	}
 
 	// do a final validity check:
 	status_t err = validateProposedFormat(
-		(fFormat.u.raw_audio.format != media_raw_audio_format::wildcard.format) ?
+		(fFormat.u.multistream.format != media_multistream_format::wildcard.format) ?
 			fFormat :
 			fPreferredFormat,
 		*format);
@@ -703,14 +765,32 @@ DVDDemuxerNode::PrepareToConnect(
 	// fill in wildcards
 	specializeOutputFormat(*format);
 
-	// reserve the output
-	//fOutput.destination = destination;
-	//fOutput.format = *format;
+	if (source == fOutputs[0].source) {
+		// reserve the output
+		fOutputs[0].destination = destination;
+		fOutputs[0].format = *format;
 
-	// pass back source & output name
-	//*source = fOutput.source;
-	//strncpy(name, fOutput.name, B_MEDIA_NAME_LENGTH);
+		// pass back source & output name
+		*out_source = fOutputs[0].source;
+		strncpy(name, fOutputs[0].name, B_MEDIA_NAME_LENGTH);
+	} else if (source == fOutputs[1].source) {
+		// reserve the output
+		fOutputs[1].destination = destination;
+		fOutputs[1].format = *format;
 
+		// pass back source & output name
+		*out_source = fOutputs[1].source;
+		strncpy(name, fOutputs[1].name, B_MEDIA_NAME_LENGTH);
+	} else if (source == fOutputs[2].source) {
+		// reserve the output
+		fOutputs[2].destination = destination;
+		fOutputs[2].format = *format;
+
+		// pass back source & output name
+		*out_source = fOutputs[2].source;
+		strncpy(name, fOutputs[2].name, B_MEDIA_NAME_LENGTH);
+	}
+	
 	return B_OK;
 }
 
@@ -720,11 +800,13 @@ DVDDemuxerNode::SetBufferGroup(
 	BBufferGroup* group)
 {
 	PRINT(("DVDDemuxerNode::SetBufferGroup()\n"));
-/*	if(source != fOutput.source) {
-		PRINT(("\tBad source.\n"));
+	if(source != fOutputs[0].source
+	&& source != fOutputs[1].source
+	&& source != fOutputs[2].source) {
+		PRINT(("\tBad source\n"));
 		return B_MEDIA_BAD_SOURCE;
 	}
-*/
+
 	if(fInput.source == media_source::null) {
 		PRINT(("\tNo producer to send buffers to.\n"));
 		return B_ERROR;
@@ -768,7 +850,7 @@ DVDDemuxerNode::handleStart(
 {
 	PRINT(("DVDDemuxerNode::handleStartEvent\n"));
 
-	startFilter();
+	start();
 }
 
 void
@@ -777,7 +859,7 @@ DVDDemuxerNode::handleStop(
 {
 	PRINT(("DVDDemuxerNode::handleStopEvent\n"));
 
-	stopFilter();
+	stop();
 }
 
 void
@@ -796,11 +878,8 @@ void
 DVDDemuxerNode::getPreferredFormat(
 	media_format& format)
 {
-	ASSERT(format.type == B_MEDIA_RAW_AUDIO);
-
-	format.u.raw_audio = media_raw_audio_format::wildcard;
-	format.u.raw_audio.channel_count = 1;
-	format.u.raw_audio.format = media_raw_audio_format::B_AUDIO_FLOAT;
+	format.u.multistream = media_multistream_format::wildcard;
+    format.u.multistream.format = media_multistream_format::B_MPEG2;
 }
 
 
@@ -810,8 +889,6 @@ status_t DVDDemuxerNode::validateProposedFormat(
 {
 	char formatStr[256];
 	PRINT(("DVDDemuxerNode::validateProposedFormat()\n"));
-
-	ASSERT(preferredFormat.type == B_MEDIA_MULTISTREAM);
 
 	string_for_format(preferredFormat, formatStr, 255);
 	PRINT(("\ttemplate format: %s\n", formatStr));
@@ -861,97 +938,50 @@ DVDDemuxerNode::specializeOutputFormat(
 	PRINT(("DVDDemuxerNode::specializeOutputFormat()\n"
 		"\tinput format: %s\n", formatStr));
 
-	ASSERT(format.type == B_MEDIA_RAW_AUDIO);
-
 	// carpal_tunnel_paranoia
-	media_raw_audio_format& f = format.u.raw_audio;
-	media_raw_audio_format& w = media_raw_audio_format::wildcard;
+	media_multistream_format& f = format.u.multistream;
+	media_multistream_format& w = media_multistream_format::wildcard;
 
-	if(f.frame_rate == w.frame_rate)
-		f.frame_rate = 44100.0;
-	if(f.channel_count == w.channel_count) {
-		//+++++ tweaked 15sep99
-		if(fInput.source != media_source::null)
-			f.channel_count = fInput.format.u.raw_audio.channel_count;
-		else
-			f.channel_count = 1;
-	}
 	if(f.format == w.format)
-		f.format = media_raw_audio_format::B_AUDIO_FLOAT;
-	if(f.byte_order == w.format)
-		f.byte_order = (B_HOST_IS_BENDIAN) ? B_MEDIA_BIG_ENDIAN : B_MEDIA_LITTLE_ENDIAN;
-	if(f.buffer_size == w.buffer_size)
-		f.buffer_size = 2048;
+		f.format = media_multistream_format::B_MPEG2;
 
 	string_for_format(format, formatStr, 255);
 	PRINT(("\toutput format: %s\n", formatStr));
 }
 
 
-// construct delay line if necessary, reset filter state
 void
-DVDDemuxerNode::initFilter()
+DVDDemuxerNode::start()
 {
-	PRINT(("DVDDemuxerNode::initFilter()\n"));
-	ASSERT(fFormat.u.raw_audio.format != media_raw_audio_format::wildcard.format);
+	PRINT(("DVDDemuxerNode::start()\n"));
 }
 
 
 void
-DVDDemuxerNode::startFilter()
+DVDDemuxerNode::stop()
 {
-	PRINT(("DVDDemuxerNode::startFilter()\n"));
+	PRINT(("DVDDemuxerNode::stop()\n"));
 }
 
 
-void
-DVDDemuxerNode::stopFilter()
-{
-	PRINT(("DVDDemuxerNode::stopFilter()\n"));
-}
-
-
-// figure processing latency by doing 'dry runs' of filterBuffer()
+// figure processing latency by doing 'dry runs' of buffer()
 bigtime_t
 DVDDemuxerNode::calcProcessingLatency()
 {
 	PRINT(("DVDDemuxerNode::calcProcessingLatency()\n"));
-/*
-	if(fOutput.destination == media_destination::null) {
-		PRINT(("\tNot connected.\n"));
-		return 0LL;
-	}
 
-	// allocate a temporary buffer group
-	BBufferGroup* testGroup = new BBufferGroup(
-		fOutput.format.u.raw_audio.buffer_size, 1);
+	/**********************
+	 * Complicated business
+	 * Return a big number for now
+	 * TODO!
+	 **********************/
 
-	// fetch a buffer
-	BBuffer* buffer = testGroup->RequestBuffer(
-		fOutput.format.u.raw_audio.buffer_size);
-	ASSERT(buffer);
-
-	buffer->Header()->type = B_MEDIA_RAW_AUDIO;
-	buffer->Header()->size_used = fOutput.format.u.raw_audio.buffer_size;
-
-	// run the test
-	bigtime_t preTest = system_time();
-	filterBuffer(buffer);
-	bigtime_t elapsed = system_time() - preTest;
-
-	// clean up
-	buffer->Recycle();
-	delete testGroup;
-
-	// reset filter state
-	initFilter();
-
-	return elapsed; */
+	return 500;
 
 }
 
 
-void DVDDemuxerNode::filterBuffer(
+void DVDDemuxerNode::buffer(
 	BBuffer* buffer)
 {
 }
