@@ -9,6 +9,7 @@
 #include <MediaDefs.h>
 #include <MediaNode.h>
 #include <MediaAddOn.h>
+#include <MediaExtractor.h>
 
 #include <vector>
 
@@ -243,17 +244,19 @@ private:
 	// m_format.u.raw_audio should revert to media_raw_audio_format::wildcard.	
 	media_format			fFormat;
 	
+	flavor_info				fFlavorInfo;
+	
 	// Connections & associated state variables	
 	media_input				fInput;
 
-	media_output			fOutput;
-	bool							fOutputEnabled;
+	media_output			fOutputs[3];
+	bool					fOutputsEnabled;
 
 	// Time required by downstream consumer(s) to properly deliver a buffer
-	bigtime_t					fDownstreamLatency;
+	bigtime_t				fDownstreamLatency;
 
 	// Worst-case time needed to fill a buffer
-	bigtime_t					fProcessingLatency;
+	bigtime_t				fProcessingLatency;
 	
 	status_t fInitCheckStatus;
 	
