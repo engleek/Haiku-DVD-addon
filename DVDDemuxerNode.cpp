@@ -43,7 +43,12 @@ DVDDemuxerNode::DVDDemuxerNode(const flavor_info *info, BMediaAddOn* addOn) :
 
 	// add-on
 	fAddOn(addOn)
-{}
+{
+	fData = new BMallocIO();
+	fData->SetBlockSize(2048);
+	
+	fExtractor = new MediaExtractor(fData, 0);
+}
 
 
 // -------------------------------------------------------- //
@@ -221,6 +226,12 @@ DVDDemuxerNode::BufferReceived(
 	 * 1 buffer goes in
 	 * 3 buffers come out
 	 ***********************/
+	
+	size_t chunkSize = 2048;
+	
+	fData->WriteAt(SEEK_END, buffer->Data(), 2048);
+	const void *data = buffer->Data();
+	fExtractor->GetNextChunk(0, &data, &chunkSize, buffer->Header());
 
 	status_t err = SendBuffer(buffer, fOutputs[0].source, fOutputs[0].destination);
 	if (err < B_OK) {
@@ -977,7 +988,6 @@ DVDDemuxerNode::calcProcessingLatency()
 	 **********************/
 
 	return 500;
-
 }
 
 

@@ -10,6 +10,8 @@
 #include <MediaNode.h>
 #include <MediaAddOn.h>
 #include <MediaExtractor.h>
+#include <DataIO.h>
+#include <MediaExtractor.h>
 
 #include <vector>
 
@@ -256,12 +258,15 @@ private:
 	bigtime_t				fProcessingLatency;
 	
 	status_t fInitCheckStatus;
+
+	BMallocIO 				*fData;
+	MediaExtractor 			*fExtractor;
 	
 private:					// *** add-on stuff
 
 	// host add-on
 	BMediaAddOn	*fAddOn;
-	
+		
 	//static const char* const		s_nodeName;
 };
 
