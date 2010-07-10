@@ -39,62 +39,135 @@
 
 #define DVD_LANGUAGE "en"
 
-//#define DVD_VIDEO_LB_LEN 24576
-//#define DVD_VIDEO_LB_LEN 4096
-
 DVDDiskNode::DVDDiskNode(
         BMediaAddOn *addon, const char *name, int32 internal_id)
   : BMediaNode(name),
     BMediaEventLooper(),
     BBufferProducer(B_MEDIA_MULTISTREAM),
-    BControllable()
+
+    fInternalID(internal_id),
+    fAddOn(addon),
+
+    fBufferGroup(NULL),
+
+    fThread(-1),
+    fStreamSync(-1),
+    fProcessingLatency(50),
+
+    fRunning(false),
+    fConnected(false),
+ 
+    fInitStatus(B_OK)
 {
-    fInitStatus = B_NO_INIT;
+    fData = new(std::nothrow) BMallocIO();
+    fData->SetBlockSize(DVD_VIDEO_LB_LEN);
+        
+    LoadDisk();
+    
+    InitOutputs();
 
-    fInternalID = internal_id;
-    fAddOn = addon;
+    if (!fDVDLoaded) {
+        fInitStatus = B_ERROR;
+    }
+ 
+    return;
+}
 
-    fBufferGroup = NULL;
-
-    fThread = -1;
-    fStreamSync = -1;
-    fProcessingLatency = 50;
-
-    fRunning = false;
-    fConnected = false;
-    fEnabled = false;
-
-    fOutput.destination = media_destination::null;
-
+void
+DVDDiskNode::LoadDisk()
+{
+    PRINTF(1, ("LoadDisk()"));
+    
     _FindDrives("/dev/disk");
     SetDrive(0);
 
-    fDVDLoaded = dvdnav_open(&dvdnav, GetDrivePath()) != DVDNAV_STATUS_OK;
+    fDVDLoaded = dvdnav_open(&fDVDNav, GetDrivePath()) == DVDNAV_STATUS_OK;
 
-    const char *path;
-    dvdnav_path(dvdnav, &path);
-    printf("DVD Path: %s\n", path);
+    if (fDVDLoaded) {
+        const char *path;
+        dvdnav_path(fDVDNav, &path);
+        printf("DVD Path: %s\n", path);
 
-    dvdnav_menu_language_select(dvdnav, DVD_LANGUAGE);
-    dvdnav_audio_language_select(dvdnav, DVD_LANGUAGE);
-    dvdnav_spu_language_select(dvdnav, DVD_LANGUAGE);
+        dvdnav_menu_language_select(fDVDNav, DVD_LANGUAGE);
+        dvdnav_audio_language_select(fDVDNav, DVD_LANGUAGE);
+        dvdnav_spu_language_select(fDVDNav, DVD_LANGUAGE);
 
-    dvdnav_set_PGC_positioning_flag(dvdnav, 1);
+        dvdnav_set_PGC_positioning_flag(fDVDNav, 1);
 
-    fInitStatus = B_OK;
+        fPerformanceTimeBase = fPerformanceTimeBase + fProcessingLatency;
 
-    return;
+        // Setting up some other stuff here for now
+
+        /* Create the buffer group */
+        PRINTF(1, ("LoadDisk(): pip!\n"));
+        fBufferGroup = new BBufferGroup(DVD_VIDEO_LB_LEN, 32); // Why 8?
+        PRINTF(1, ("LoadDisk(): pip!\n"));
+        if (fBufferGroup->InitCheck() < B_OK) {
+            delete fBufferGroup;
+            fBufferGroup = NULL;
+            return;
+        }
+
+        PRINTF(1, ("LoadDisk(): pip!\n"));
+        SetEventLatency(50);
+        fProcessingLatency = 50; // Work out latencies later.
+    }
+    PRINTF(1, ("LoadDisk(): loaded!\n"));
+}
+
+void
+DVDDiskNode::InitOutputs()
+{
+    uint8_t mem[DVD_VIDEO_LB_LEN];
+    uint8_t *buf = mem;
+
+    // Read a few media blocks for Media Extractor to work with.
+    int count = 0;
+    while (count < 10) {
+        fResult = dvdnav_get_next_block(fDVDNav, buf, &fEvent, &fLen);
+
+        if (fResult == DVDNAV_STATUS_ERR) {
+            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
+            fInitStatus = B_ERROR;
+            return;
+        }
+
+        if (fEvent == DVDNAV_BLOCK_OK) {
+            fData->Write(buf, DVD_VIDEO_LB_LEN);
+            count++;
+        }
+    }
+    
+    fExtractor = new(std::nothrow) MediaExtractor(fData, 0);
+
+    int streamCount = fExtractor->StreamCount();
+    
+    for (int i = 0; i < streamCount; i++) {
+        media_output *output = new media_output();
+        
+        output->node = Node();
+        output->source.port = ControlPort();
+        output->source = media_source::null;
+        output->destination = media_destination::null;
+        output->format = *fExtractor->EncodedFormat(i);
+        
+        fOutputs.push_back(output);
+    }
 }
 
 DVDDiskNode::~DVDDiskNode()
 {
     if (fInitStatus == B_OK) {
-        /* Clean up after ourselves, in case the application didn't make us
-         * do so. */
-        if (fConnected)
-            Disconnect(fOutput.source, fOutput.destination);
+        for (uint32 i = 0; i < fOutputs.size(); i++) {
+            Disconnect(fOutputs[i]->source, fOutputs[i]->destination);
+        }
         if (fRunning)
             HandleStop();
+
+        fLock.Lock();
+            delete fBufferGroup;
+            fBufferGroup = NULL;
+        fLock.Unlock();
     }
 }
 
@@ -138,18 +211,7 @@ DVDDiskNode::NodeRegistered()
         ReportError(B_NODE_IN_DISTRESS);
         return;
     }
-
-    fOutput.node = Node();
-    fOutput.source.port = ControlPort();
-    fOutput.source.id = 0;
-    fOutput.destination = media_destination::null;
-    strcpy(fOutput.name, Name());
-
-    /* Video format config */
-    fOutput.format.type = B_MEDIA_MULTISTREAM;
-    fOutput.format.u.multistream = media_multistream_format::wildcard;
-    fOutput.format.u.multistream.format = media_multistream_format::B_MPEG2;
-
+    
     /* Start the BMediaEventLooper control loop running */
     Run();
 }
@@ -249,13 +311,14 @@ status_t
 DVDDiskNode::FormatSuggestionRequested(
         media_type type, int32 quality, media_format *format)
 {
-    if (type != B_MEDIA_MULTISTREAM)
-        return B_MEDIA_BAD_FORMAT;
-
-    TOUCH(quality);
-
-    *format = fOutput.format;
-    return B_OK;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (type == fOutputs[i]->format.type) {
+            *format = fOutputs[i]->format;
+            return B_OK;
+        }
+    }
+    
+    return B_MEDIA_BAD_FORMAT;
 }
 
 status_t
@@ -266,14 +329,17 @@ DVDDiskNode::FormatProposal(const media_source &output, media_format *format)
     if (!format)
         return B_BAD_VALUE;
 
-    if (output != fOutput.source)
-        return B_MEDIA_BAD_SOURCE;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (output == fOutputs[i]->source) {
+            err = format_is_compatible(*format, fOutputs[i]->format) ?
+                    B_OK : B_MEDIA_BAD_FORMAT;
+            *format = fOutputs[i]->format;
 
-    err = format_is_compatible(*format, fOutput.format) ?
-            B_OK : B_MEDIA_BAD_FORMAT;
-    *format = fOutput.format;
+            return err;
+        }
+    }
 
-    return err;
+    return B_MEDIA_BAD_SOURCE;
 }
 
 status_t
@@ -282,10 +348,14 @@ DVDDiskNode::FormatChangeRequested(const media_source &source,
         int32 *_deprecated_)
 {
     TOUCH(destination); TOUCH(io_format); TOUCH(_deprecated_);
-    if (source != fOutput.source)
-        return B_MEDIA_BAD_SOURCE;
 
-    return B_ERROR;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (source == fOutputs[i]->source) {
+            return B_ERROR;
+        }
+    }
+    
+    return B_MEDIA_BAD_SOURCE;
 }
 
 status_t
@@ -294,11 +364,12 @@ DVDDiskNode::GetNextOutput(int32 *cookie, media_output *out_output)
     if (!out_output)
         return B_BAD_VALUE;
 
-    if ((*cookie) != 0)
+    if ((*cookie) < 0 || (*cookie) >= fOutputs.size())
         return B_BAD_INDEX;
 
-    *out_output = fOutput;
+    *out_output = *fOutputs[(*cookie)];
     (*cookie)++;
+    
     return B_OK;
 }
 
@@ -344,30 +415,31 @@ DVDDiskNode::PrepareToConnect(const media_source &source,
 {
     PRINTF(1, ("PrepareToConnect()\n")); // Fill in format details here.
 
-    if (fConnected) {
-        PRINTF(0, ("PrepareToConnect: Already connected\n"));
-        return EALREADY;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (fOutputs[i]->source == source) {
+            if (fOutputs[i]->destination != media_destination::null) {
+                PRINTF(0, ("PrepareToConnect: Output already connected\n"));
+                return EALREADY;
+            }
+
+            if (fOutputs[i]->destination != media_destination::null)
+                return B_MEDIA_ALREADY_CONNECTED;
+
+            if (!format_is_compatible(*format, fOutputs[i]->format)) {
+                *format = fOutputs[i]->format;
+                return B_MEDIA_BAD_FORMAT;
+            }
+
+            *out_source = fOutputs[i]->source;
+            strcpy(out_name, fOutputs[i]->name);
+
+            fOutputs[i]->destination = destination;
+
+            return B_OK;
+        }
     }
-
-    if (source != fOutput.source)
-        return B_MEDIA_BAD_SOURCE;
-
-    if (fOutput.destination != media_destination::null)
-        return B_MEDIA_ALREADY_CONNECTED;
-
-    /* The format parameter comes in with the suggested format, and may be
-     * specialized as desired by the node */
-    if (!format_is_compatible(*format, fOutput.format)) {
-        *format = fOutput.format;
-        return B_MEDIA_BAD_FORMAT;
-    }
-
-    *out_source = fOutput.source;
-    strcpy(out_name, fOutput.name);
-
-    fOutput.destination = destination;
-
-    return B_OK;
+    
+    return B_MEDIA_BAD_SOURCE;
 }
 
 void
@@ -377,50 +449,26 @@ DVDDiskNode::Connect(status_t error, const media_source &source,
 {
     PRINTF(1, ("Connect()\n")); // Again, complete with format details.
 
-    if (fConnected) {
-        PRINTF(0, ("Connect: Already connected\n"));
-        return;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (fOutputs[i]->source == source) {
+            if (fOutputs[i]->destination != media_destination::null) {
+                PRINTF(0, ("Connect: Already connected\n"));
+                return;
+            }
+
+            if ((error < B_OK)
+            || !const_cast<media_format *>(&format)->Matches(&fOutputs[i]->format)) {
+                PRINTF(1, ("Connect: Connect error\n"));
+                return;
+            }
+
+            fOutputs[i]->destination = destination;
+            strcpy(io_name, fOutputs[i]->name);
+
+            /* Tell frame generation thread to recalculate delay value */
+            release_sem(fStreamSync);
+        }
     }
-
-    if (    (source != fOutput.source) || (error < B_OK) ||
-            !const_cast<media_format *>(&format)->Matches(&fOutput.format)) {
-        PRINTF(1, ("Connect: Connect error\n"));
-        return;
-    }
-
-    fOutput.destination = destination;
-    strcpy(io_name, fOutput.name);
-
-    fPerformanceTimeBase = fPerformanceTimeBase + fProcessingLatency;
-
-    fConnectedFormat = format.u.multistream;
-
-    /* get the latency */
-    bigtime_t latency = 50;
-    media_node_id tsID = 0;
-    FindLatencyFor(fOutput.destination, &latency, &tsID);
-    SetEventLatency(latency);
-
-    finished = 0;
-    output_fd = 0;
-    dump = 0;
-    tt_dump = 0;
-
-    fProcessingLatency = 50;
-
-    /* Create the buffer group */
-    fBufferGroup = new BBufferGroup(DVD_VIDEO_LB_LEN, 32); // Why 8?
-    if (fBufferGroup->InitCheck() < B_OK) {
-        delete fBufferGroup;
-        fBufferGroup = NULL;
-        return;
-    }
-
-    fConnected = true;
-    fEnabled = true;
-
-    /* Tell frame generation thread to recalculate delay value */
-    release_sem(fStreamSync);
 }
 
 void
@@ -429,25 +477,24 @@ DVDDiskNode::Disconnect(const media_source &source,
 {
     PRINTF(1, ("Disconnect()\n"));
 
-    if (!fConnected) {
-        PRINTF(0, ("Disconnect: Not connected\n"));
-        return;
+    for (uint32 i = 0; i < fOutputs.size(); i++) {
+        if (fOutputs[i]->source == source) {
+            if (fOutputs[i]->destination == media_destination::null) {
+                PRINTF(0, ("Disconnect: Not connected\n"));
+                return;
+            }
+
+            if (destination != fOutputs[i]->destination) {
+                PRINTF(0, ("Disconnect: Bad destination\n"));
+                return;
+            }
+
+            fOutputs[i]->destination = media_destination::null;
+        }
     }
 
-    if ((source != fOutput.source) || (destination != fOutput.destination)) {
-        PRINTF(0, ("Disconnect: Bad source and/or destination\n"));
-        return;
-    }
-
-    fEnabled = false;
-    fOutput.destination = media_destination::null;
-
-    fLock.Lock();
-        delete fBufferGroup;
-        fBufferGroup = NULL;
-    fLock.Unlock();
-
-    fConnected = false;
+    PRINTF(0, ("Disconnect: Bad source\n"));
+    return;
 }
 
 void
@@ -463,10 +510,7 @@ DVDDiskNode::EnableOutput(const media_source &source, bool enabled,
 {
     TOUCH(_deprecated_);
 
-    if (source != fOutput.source)
-        return;
-
-    fEnabled = enabled;
+    return;
 }
 
 status_t
@@ -493,44 +537,6 @@ DVDDiskNode::LatencyChanged(const media_source &source,
     TOUCH(source); TOUCH(destination); TOUCH(new_latency); TOUCH(flags);
 }
 
-/* BControllable */
-
-status_t
-DVDDiskNode::GetParameterValue(
-    int32 id, bigtime_t *last_change, void *value, size_t *size)
-{
-    if (id != P_COLOR)
-        return B_BAD_VALUE;
-
-    *last_change = fLastColorChange;
-    *size = sizeof(uint32);
-    *((uint32 *)value) = fColor;
-
-    return B_OK;
-}
-
-void
-DVDDiskNode::SetParameterValue(
-    int32 id, bigtime_t when, const void *value, size_t size)
-{
-    if ((id != P_COLOR) || !value || (size != sizeof(uint32)))
-        return;
-
-    if (*(uint32 *)value == fColor)
-        return;
-
-    fColor = *(uint32 *)value;
-    fLastColorChange = when;
-
-    BroadcastNewParameterValue(
-            fLastColorChange, P_COLOR, &fColor, sizeof(fColor));
-}
-
-status_t
-DVDDiskNode::StartControlPanel(BMessenger *out_messenger)
-{
-    return BControllable::StartControlPanel(out_messenger);
-}
 
 /* DVDDiskNode */
 
@@ -554,7 +560,6 @@ DVDDiskNode::HandleStart(bigtime_t performance_time)
     }
 
     fPerformanceTimeBase = performance_time;
-    finished = 0;
 
     fStreamSync = create_sem(0, "stream synchronization");
     if (fStreamSync < B_OK)
@@ -649,23 +654,25 @@ DVDDiskNode::StreamGenerator()
 
         /* Send buffers only if the node is running and the output has been
          * enabled */
-        if (!fRunning || !fEnabled)
+        if (!fRunning)
             continue;
 
         BAutolock _(fLock);
 
-        result = dvdnav_get_next_block(dvdnav, (u_int8_t *)buffer->Data(), &event, &len);
+        fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) fData->Buffer(), &fEvent, &fLen);
 
-        if (result == DVDNAV_STATUS_ERR) {
-            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(dvdnav));
+        if (fResult == DVDNAV_STATUS_ERR) {
+            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
             return B_ERROR;
         }
 
-        switch (event) {
+        switch (fEvent) {
         case DVDNAV_BLOCK_OK:
-            {
-                // Regular MPEG block: Send the buffer on down to the consumer
-                if (SendBuffer(buffer, fOutput.source, fOutput.destination) < B_OK) {
+            {                
+                // Regular MPEG block: Send to the extractor
+                
+                
+                if (SendBuffer(buffer, fOutputs[0]->source, fOutputs[0]->destination) < B_OK) {
                     printf("DVD: StreamGenerator: Error sending buffer\n");
                     buffer->Recycle();
                 }
@@ -682,7 +689,7 @@ DVDDiskNode::StreamGenerator()
                     printf("DVD: Still frame: %d seconds\n", still_event->length);
                 else
                     printf("DVD: Still frame: indefinite\n");
-                dvdnav_still_skip(dvdnav);
+                dvdnav_still_skip(fDVDNav);
 
                 buffer->Recycle();
             }
@@ -695,7 +702,7 @@ DVDDiskNode::StreamGenerator()
             * Such applications should wait until their fifos are empty
             * when they receive this type of event. */
             printf("DVD: Skipping wait condition\n");
-            dvdnav_wait_skip(dvdnav);
+            dvdnav_wait_skip(fDVDNav);
                 buffer->Recycle();
             break;
         case DVDNAV_SPU_CLUT_CHANGE:
@@ -732,13 +739,13 @@ DVDDiskNode::StreamGenerator()
             * accordingly. */
             {
                 int32_t tt = 0, ptt = 0;
-                uint32_t pos, len;
+                uint32_t pos, fLen;
                 char input = '\0';
 
-                dvdnav_current_title_info(dvdnav, &tt, &ptt);
-                dvdnav_get_position(dvdnav, &pos, &len);
+                dvdnav_current_title_info(fDVDNav, &tt, &ptt);
+                dvdnav_get_position(fDVDNav, &pos, &fLen);
                 printf("DVD: Cell change: Title %d, Chapter %d\n", tt, ptt);
-                printf("DVD: At position %.0f%% inside the feature\n", 100 * (double)pos / (double)len);
+                printf("DVD: At position %.0f%% inside the feature\n", 100 * (double)pos / (double)fLen);
                 buffer->Recycle();
             }
             break;
@@ -755,8 +762,8 @@ DVDDiskNode::StreamGenerator()
                 * functions will already be ahead in the stream which can cause state inconsistencies.
                 * Applications with fifos should therefore pass the NAV packet through the fifo
                 * and decoding pipeline just like any other data. */
-                pci = dvdnav_get_current_nav_pci(dvdnav);
-                dvdnav_get_current_nav_dsi(dvdnav);
+                pci = dvdnav_get_current_nav_pci(fDVDNav);
+                dvdnav_get_current_nav_dsi(fDVDNav);
 
                 if(pci->hli.hl_gi.btn_ns > 0) {
                     int button;
@@ -775,7 +782,7 @@ DVDDiskNode::StreamGenerator()
                     printf("DVD: Selecting button %i...\n", button);
                     /* This is the point where applications with fifos have to hand in a NAV packet
                     * which has traveled through the fifos. See the notes above. */
-                    dvdnav_button_select_and_activate(dvdnav, pci, button);
+                    dvdnav_button_select_and_activate(fDVDNav, pci, button);
                 }
             }
 
@@ -791,7 +798,7 @@ DVDDiskNode::StreamGenerator()
                 buffer->Recycle();
             break;
         default:
-            printf("DVD: Unknown event (%i)\n", event);
+            printf("DVD: Unknown event (%i)\n", fEvent);
             HandleStop();
                 buffer->Recycle();
             break;

@@ -12,22 +12,27 @@
 #include <media/MediaDecoder.h>
 #include <support/Locker.h>
 #include <String.h>
+#include <DataIO.h>
+#include <MediaExtractor.h>
+
+#include <vector>
 
 #include "dvdnav.h"
 
 class DVDDiskNode :
     public virtual BMediaEventLooper,
-    public virtual BBufferProducer,
-    public virtual BControllable
+    public virtual BBufferProducer
 {
 public:
-                        DVDDiskNode(BMediaAddOn *addon,
+                    DVDDiskNode(BMediaAddOn *addon,
                                 const char *name, int32 internal_id);
-virtual                 ~DVDDiskNode();
+virtual             ~DVDDiskNode();
 
-virtual status_t        InitCheck() const { return fInitStatus; }
+virtual status_t    InitCheck() const { return fInitStatus; }
+
 
 /* BMediaNode */
+
 public:
 virtual port_id     ControlPort() const;
 virtual BMediaAddOn *AddOn(int32 * internal_id) const;
@@ -37,7 +42,9 @@ protected:
 virtual void        Preroll();
 virtual void        SetTimeSource(BTimeSource * time_source);
 
+
 /* BMediaEventLooper */
+
 protected:
 virtual void        NodeRegistered();
 virtual void        Start(bigtime_t performance_time);
@@ -54,7 +61,9 @@ virtual bigtime_t   OfflineTime();
 virtual void        ControlLoop();
 virtual status_t    DeleteHook(BMediaNode * node);
 
+
 /* BBufferProducer */
+
 protected:
 virtual status_t    FormatSuggestionRequested(media_type type, int32 quality,
                             media_format * format);
@@ -93,24 +102,19 @@ virtual void        LatencyChanged(const media_source & source,
                             const media_destination & destination,
                             bigtime_t new_latency, uint32 flags);
 
-/* BControllable */
-protected:
-virtual status_t    GetParameterValue(int32 id, bigtime_t *last_change,
-                            void *value, size_t *size);
-virtual void        SetParameterValue(int32 id, bigtime_t when,
-                            const void *value, size_t size);
-virtual status_t    StartControlPanel(BMessenger *out_messenger);
-
-/* state */
 private:
-        void                HandleStart(bigtime_t performance_time);
-        void                HandleStop();
-        void                HandleTimeWarp(bigtime_t performance_time);
-        void                HandleSeek(bigtime_t performance_time);
+        void        HandleStart(bigtime_t performance_time);
+        void        HandleStop();
+        void        HandleTimeWarp(bigtime_t performance_time);
+        void        HandleSeek(bigtime_t performance_time);
 
-        bool SetDrive(const int32 &drive);
-        const char* GetDrivePath() const;
-        int32 _FindDrives(const char *path);
+        // Drive functions, remove eventually
+        bool        SetDrive(const int32 &drive);
+        const       char* GetDrivePath() const;
+        int32       _FindDrives(const char *path);
+
+        void        LoadDisk();
+        void        InitOutputs();
 
         status_t            fInitStatus;
 
@@ -118,40 +122,32 @@ private:
         BMediaAddOn         *fAddOn;
 
         BLocker             fLock;
-            BBufferGroup    *fBufferGroup;
+        BBufferGroup        *fBufferGroup;
 
         thread_id           fThread;
         sem_id              fStreamSync;
 static  int32               _stream_generator_(void *data);
         int32               StreamGenerator();
 
-        /* The remaining variables should be declared volatile, but they
-         * are not here to improve the legibility of the sample code. */
+		std::vector<media_output *>	fOutputs;
+
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;
-        media_output        fOutput;
-        media_multistream_format  fConnectedFormat;
         bool                fRunning;
         bool                fConnected;
-        bool                fEnabled;
-
-        enum                { P_COLOR };
-        uint32              fColor;
-        bigtime_t           fLastColorChange;
-
-        dvdnav_t            *dvdnav;
         bool                fDVDLoaded;
-        int                 finished;
-        int                 output_fd;
-        int                 dump;
-        int                 tt_dump;
-        int                 result;
-        int                 event;
-        int                 len;
 
         BList               fDriveList;
         BString*            fDrivePath;
         int32               fDriveIndex;
+
+        dvdnav_t            *fDVDNav;
+        BMallocIO           *fData;
+        MediaExtractor      *fExtractor;
+        
+        int                 fResult;
+        int                 fEvent;
+        int                 fLen;
 };
 
 #endif
