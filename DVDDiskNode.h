@@ -14,6 +14,7 @@
 #include <String.h>
 #include <DataIO.h>
 #include <MediaExtractor.h>
+#include <MediaDecoder.h>
 
 #include <vector>
 
@@ -130,6 +131,7 @@ static  int32               _stream_generator_(void *data);
         int32               StreamGenerator();
 
 		std::vector<media_output *>	fOutputs;
+        std::vector<BMediaBufferDecoder *> fTracks;
 
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;

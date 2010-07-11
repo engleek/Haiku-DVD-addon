@@ -141,16 +141,41 @@ DVDDiskNode::InitOutputs()
     fExtractor = new(std::nothrow) MediaExtractor(fData, 0);
 
     int streamCount = fExtractor->StreamCount();
-    
-    for (int i = 0; i < streamCount; i++) {
-        media_output *output = new media_output();
+
+    for (int32 i = 0; i < streamCount; i++) {
+        printf("%s::loop %i of %i\n", __FUNCTION__, i, streamCount);
+
+        // Create a decoder for the output
+        media_codec_info info;
+        Decoder* decoder;
+        fExtractor->CreateDecoder(i, &decoder, &info);
         
+        // Grab the encoded format
+        const media_format* encFormat = fExtractor->EncodedFormat(i);
+        
+        // Create output based on the new format       
+        media_output *output = new media_output();
+
         output->node = Node();
         output->source.port = ControlPort();
         output->source = media_source::null;
         output->destination = media_destination::null;
-        output->format = *fExtractor->EncodedFormat(i);
         
+        if (encFormat->IsVideo()) {
+            output->format.type = B_MEDIA_RAW_VIDEO;
+            output->format.u.raw_video = media_raw_video_format::wildcard;
+            output->format.u.raw_video.display.line_width = encFormat->Width();
+            output->format.u.raw_video.display.line_count = encFormat->Height();
+            output->format.u.raw_video.display.format = encFormat->ColorSpace();
+        }
+
+        if (encFormat->IsAudio()) {
+            output->format.type = B_MEDIA_RAW_AUDIO;
+            output->format.u.raw_audio = media_raw_audio_format::wildcard;
+            output->format.u.raw_audio.format = encFormat->AudioFormat();
+            //output->format.u.raw_audio.frame_size = encFormat->AudioFrameSize();
+        }
+
         fOutputs.push_back(output);
     }
 }
