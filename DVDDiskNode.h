@@ -13,12 +13,20 @@
 #include <support/Locker.h>
 #include <String.h>
 #include <DataIO.h>
-#include <MediaExtractor.h>
-#include <MediaDecoder.h>
+#include <MediaFile.h>
+#include <MediaTrack.h>
 
 #include <vector>
 
 #include "dvdnav.h"
+
+struct output_bundle {
+    media_output* output;
+    BMediaBufferDecoder* decoder;
+    BMallocIO* data;
+    BBufferGroup* bufferGroup;
+    bool connected;
+};
 
 class DVDDiskNode :
     public virtual BMediaEventLooper,
@@ -123,7 +131,6 @@ private:
         BMediaAddOn         *fAddOn;
 
         BLocker             fLock;
-        BBufferGroup        *fBufferGroup;
 
         thread_id           fThread;
         sem_id              fStreamSync;
@@ -131,12 +138,13 @@ static  int32               _stream_generator_(void *data);
         int32               StreamGenerator();
 
 		std::vector<media_output *>	fOutputs;
-        std::vector<BMediaBufferDecoder *> fTracks;
+        std::vector<BBufferGroup *> fBufferGroups;
+        std::vector<BMediaTrack *> fTracks;
+        std::vector<bool> fConnected;
 
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;
         bool                fRunning;
-        bool                fConnected;
         bool                fDVDLoaded;
 
         BList               fDriveList;
@@ -145,11 +153,13 @@ static  int32               _stream_generator_(void *data);
 
         dvdnav_t            *fDVDNav;
         BMallocIO           *fData;
-        MediaExtractor      *fExtractor;
+        BMediaFile          *fMediaFile;
         
         int                 fResult;
         int                 fEvent;
         int                 fLen;
+        uint8_t             fMem[DVD_VIDEO_LB_LEN];
+        uint8_t             *fDVDBuf;
 };
 
 #endif
