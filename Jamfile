@@ -9,7 +9,6 @@ SubDirHdrs [ FDirName $(SUBDIR) libdvdnav libdvdread ] ;
 Addon dvd.media_addon :
     DVDAddOn.cpp
     DVDDiskNode.cpp
-    DVDDemuxerNode.cpp
     :
     libdvdnav.a
     libdvdvm.a
