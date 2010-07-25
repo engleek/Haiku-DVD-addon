@@ -10,7 +10,6 @@
 
 #include "DVDAddOn.h"
 #include "DVDDiskNode.h"
-#include "DVDDemuxerNode.h"
 
 DVDAddOn::DVDAddOn(image_id imid)
     : BMediaAddOn(imid)
