@@ -20,15 +20,8 @@
 
 #include "dvdnav.h"
 
-struct output_bundle {
-    media_output* output;
-    BMediaBufferDecoder* decoder;
-    BMallocIO* data;
-    BBufferGroup* bufferGroup;
-    bool connected;
-};
-
 class DVDDiskNode :
+    public virtual BPositionIO,
     public virtual BMediaEventLooper,
     public virtual BBufferProducer
 {
@@ -39,6 +32,15 @@ virtual             ~DVDDiskNode();
 
 virtual status_t    InitCheck() const { return fInitStatus; }
 
+/* BPositionIO */
+
+ssize_t Read(void *buffer, size_t size);
+ssize_t ReadAt(off_t position, void *buffer, size_t size);
+ssize_t WriteAt(off_t position, const void *buffer,
+                    size_t size);
+
+off_t Seek(off_t position, uint32 seekMode);
+off_t Position() const;
 
 /* BMediaNode */
 
@@ -139,8 +141,8 @@ static  int32               _stream_generator_(void *data);
 
 		std::vector<media_output *>	fOutputs;
         std::vector<BBufferGroup *> fBufferGroups;
-        std::vector<BMediaTrack *> fTracks;
-        std::vector<bool> fConnected;
+        std::vector<BMediaTrack *>  fTracks;
+        std::vector<bool>           fConnected;
 
         bigtime_t           fPerformanceTimeBase;
         bigtime_t           fProcessingLatency;
@@ -152,14 +154,15 @@ static  int32               _stream_generator_(void *data);
         int32               fDriveIndex;
 
         dvdnav_t            *fDVDNav;
-        BMallocIO           *fData;
         BMediaFile          *fMediaFile;
         
         int                 fResult;
         int                 fEvent;
         int                 fLen;
-        uint8_t             fMem[DVD_VIDEO_LB_LEN];
-        uint8_t             *fDVDBuf;
+        uint8_t             *fBuffer;
+        int                 fBufferSize;
+		size_t	            fPosition;
+		size_t	            fLength;
 };
 
 #endif

@@ -43,7 +43,7 @@ DVDDiskNode::DVDDiskNode(
         BMediaAddOn *addon, const char *name, int32 internal_id)
   : BMediaNode(name),
     BMediaEventLooper(),
-    BBufferProducer(B_MEDIA_MULTISTREAM),
+    BBufferProducer(B_MEDIA_UNKNOWN_TYPE),
 
     fInternalID(internal_id),
     fAddOn(addon),
@@ -57,18 +57,19 @@ DVDDiskNode::DVDDiskNode(
  
     fInitStatus(B_OK),
     
-    fDVDBuf(fMem)
+    fPosition(0)
 {
-    fData = new(std::nothrow) BMallocIO();
-    fData->SetBlockSize(DVD_VIDEO_LB_LEN);
+    fBuffer = (uint8_t *) malloc (DVD_VIDEO_LB_LEN);
         
     LoadDisk();
-    
-    InitOutputs();
 
     if (!fDVDLoaded) {
+        PRINTF(1, ("Ouch, unable to load disk.\n"));
         fInitStatus = B_ERROR;
+        return;
     }
+    
+    InitOutputs();
  
     return;
 }
@@ -76,7 +77,7 @@ DVDDiskNode::DVDDiskNode(
 void
 DVDDiskNode::LoadDisk()
 {
-    PRINTF(1, ("LoadDisk()"));
+    PRINTF(1, ("LoadDisk()\n"));
     
     _FindDrives("/dev/disk");
     SetDrive(0);
@@ -94,6 +95,8 @@ DVDDiskNode::LoadDisk()
 
         dvdnav_set_PGC_positioning_flag(fDVDNav, 1);
 
+        //dvdnav_part_play(fDVDNav, 1, 1);
+        
         fPerformanceTimeBase = fPerformanceTimeBase + fProcessingLatency;
 
         // Setting up some other stuff here for now
@@ -106,38 +109,41 @@ DVDDiskNode::LoadDisk()
 void
 DVDDiskNode::InitOutputs()
 {
-    // Read a few media blocks for Media Extractor to work with.
+    PRINTF(1, ("InitOutputs()\n"));
+/*
+    // Need to realloc for the extra blocks
+    fBufferSize = 5 * DVD_VIDEO_LB_LEN;
+    fBuffer = (uint8_t *) realloc(fBuffer, fBufferSize);
+     
     int count = 0;
-    while (count < 10) {
-        fResult = dvdnav_get_next_block(fDVDNav, fDVDBuf, &fEvent, &fLen);
+    while (count < 5) {
+        fResult = dvdnav_get_next_block(fDVDNav, fBuffer + (DVD_VIDEO_LB_LEN * count), &fEvent, &fLen);
 
         if (fResult == DVDNAV_STATUS_ERR) {
-            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
-            fInitStatus = B_ERROR;
+            printf("DVD: Error getting block: %s\n", dvdnav_err_to_string(fDVDNav));
             return;
         }
 
         if (fEvent == DVDNAV_BLOCK_OK) {
-            fData->Write(fDVDBuf, DVD_VIDEO_LB_LEN);
             count++;
         }
     }
+*/    
+    PRINTF(1, ("InitOutputs(): BMediaFile\n"));
     
-    fMediaFile = new BMediaFile(fData, (long int) 0);
+    fMediaFile = new BMediaFile(this, (long int) 0);
 
     int trackCount = fMediaFile->CountTracks();
 
     for (int32 i = 0; i < trackCount; i++) {
-        PRINTF(1, ("Creating Track\n"));
+        PRINTF(1, ("InitOutputs(): Creating Track %i of %i\n", i, trackCount));
         BMediaTrack* track = fMediaFile->TrackAt(i);
 
         // Grab the encoded format
-        PRINTF(1, ("Encoded format\n"));
         media_format* encFormat = new media_format();
         track->EncodedFormat(encFormat);
         
         // Create output based on the new format       
-        PRINTF(1, ("New Output\n"));
         media_output *output = new media_output();
 
         output->node = Node();
@@ -145,46 +151,61 @@ DVDDiskNode::InitOutputs()
         output->source.port = ControlPort();
         output->destination = media_destination::null;
 
-        PRINTF(1, ("Is Video?\n"));
+        int bufferSize = 0;
+
         if (encFormat->IsVideo()) {
-            printf("\tFormat is Video!\n");
+            PRINTF(1, ("InitOutputs(): Video Track\n"));
             output->format.type = B_MEDIA_RAW_VIDEO;
             output->format.u.raw_video = media_raw_video_format::wildcard;
             output->format.u.raw_video.display.line_width = encFormat->Width();
             output->format.u.raw_video.display.line_count = encFormat->Height();
             output->format.u.raw_video.display.format = encFormat->ColorSpace();
-        }
+            
+            bufferSize = encFormat->Width() * encFormat->Height();
 
-        PRINTF(1, ("Is Audio?\n"));
-        if (encFormat->IsAudio()) {
-            printf("\tFormat is Audio!\n");
+            track->DecodedFormat(&output->format);
+            
+            // Create the buffer group for the output.
+            BBufferGroup *bufferGroup = new BBufferGroup(bufferSize, 10); // 
+            if (bufferGroup->InitCheck() < B_OK) {
+                delete bufferGroup;
+                bufferGroup = NULL;
+                return;
+            }
+
+            PRINTF(1, ("InitOutputs(): Add output %i to the list...\n", i));
+            fOutputs.push_back(output);
+            fBufferGroups.push_back(bufferGroup);
+            fTracks.push_back(track);
+            fConnected.push_back(false);
+        } else if (encFormat->IsAudio()) {
+            PRINTF(1, ("InitOutputs(): Audio Track\n"));
             output->format.type = B_MEDIA_RAW_AUDIO;
             output->format.u.raw_audio = media_raw_audio_format::wildcard;
             output->format.u.raw_audio.format = encFormat->AudioFormat();
             //output->format.u.raw_audio.frame_size = encFormat->AudioFrameSize();
-        }
+            
+            bufferSize = encFormat->u.raw_audio.buffer_size;
 
-        PRINTF(1, ("Decoder Format\n"));
-        track->DecodedFormat(&output->format);
-        
-        // Create the buffer group for the output.
-        PRINTF(1, ("Creating Buffer Group\n"));
-        BBufferGroup *bufferGroup = new BBufferGroup(DVD_VIDEO_LB_LEN, 32); // Why 8?
-        if (bufferGroup->InitCheck() < B_OK) {
-            delete bufferGroup;
-            bufferGroup = NULL;
-            return;
-        }
+            track->DecodedFormat(&output->format);
+            
+            // Create the buffer group for the output.
+            BBufferGroup *bufferGroup = new BBufferGroup(bufferSize, 10); // 
+            if (bufferGroup->InitCheck() < B_OK) {
+                delete bufferGroup;
+                bufferGroup = NULL;
+                return;
+            }
 
-        PRINTF(1, ("Pushing all back...\n"));
-        fOutputs.push_back(output);
-        fBufferGroups.push_back(bufferGroup);
-        fTracks.push_back(track);
-        fConnected.push_back(false);
+            PRINTF(1, ("InitOutputs(): Add output %i to the list...\n", i));
+            fOutputs.push_back(output);
+            fBufferGroups.push_back(bufferGroup);
+            fTracks.push_back(track);
+            fConnected.push_back(false);
+        } else {
+            PRINTF(1, ("InitOutputs(): Other Format\n"));
+        }
     }
-    
-    // All set up, reset DVD
-    //dvdnav_reset(fDVDNav);
 }
 
 DVDDiskNode::~DVDDiskNode()
@@ -202,6 +223,83 @@ DVDDiskNode::~DVDDiskNode()
         if (fRunning)
             HandleStop();
     }
+}
+
+/* BDataIO */
+
+ssize_t
+DVDDiskNode::Read(void *buffer, size_t size)
+{
+    printf("DVD::Read() Called");
+    
+	off_t curPos = Position();
+	ssize_t result = ReadAt(curPos, buffer, size);
+	if (result > 0)
+		Seek(result, (long unsigned int) SEEK_CUR);
+
+	return result;
+}
+
+
+ssize_t
+DVDDiskNode::ReadAt(off_t pos, void *buffer, size_t size)
+{
+    dvdnav_sector_search(fDVDNav, pos - fPosition, SEEK_CUR);
+    
+    fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) buffer, &fEvent, &fLen);
+
+    if (fResult == DVDNAV_STATUS_ERR) {
+        printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
+        return B_ERROR;
+    }
+
+    while (fEvent != DVDNAV_BLOCK_OK) {
+        fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) buffer, &fEvent, &fLen);
+
+        if (fResult == DVDNAV_STATUS_ERR) {
+            printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
+            return B_ERROR;
+        }
+    }
+    
+    fPosition = pos;
+
+    return fLen;
+}
+
+
+ssize_t
+DVDDiskNode::WriteAt(off_t pos, const void *buffer, size_t size)
+{
+    // Read-only from outside
+	return 0;
+}
+
+
+off_t
+DVDDiskNode::Seek(off_t position, uint32 seekMode)
+{
+	switch (seekMode) {
+		case SEEK_SET:
+			fPosition = position;
+			break;
+		case SEEK_END:
+			fPosition = fLength + position;
+			break;
+		case SEEK_CUR:
+			fPosition += position;
+			break;
+		default:
+			break;
+	}
+	return fPosition;
+}
+
+
+off_t
+DVDDiskNode::Position() const
+{
+	return fPosition;
 }
 
 /* BMediaNode */
@@ -662,7 +760,7 @@ DVDDiskNode::StreamGenerator()
         status_t err = acquire_sem_etc(fStreamSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
-        BBuffer *buffer = fBufferGroups[0]->RequestBuffer(DVD_VIDEO_LB_LEN, 50);
+        BBuffer *buffer = fBufferGroups[0]->RequestBuffer(414720);
         if (!buffer)
             continue;
             
@@ -687,7 +785,7 @@ DVDDiskNode::StreamGenerator()
         BAutolock _(fLock);
 
         PRINTF(1, ("Read Block\n"));
-        fResult = dvdnav_get_next_block(fDVDNav, fDVDBuf, &fEvent, &fLen);
+        fResult = dvdnav_get_next_block(fDVDNav, fBuffer, &fEvent, &fLen);
 
         if (fResult == DVDNAV_STATUS_ERR) {
             printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
@@ -698,9 +796,6 @@ DVDDiskNode::StreamGenerator()
         case DVDNAV_BLOCK_OK:
             {
                 // Regular MPEG block: Send to the extractor
-                PRINTF(1, ("Transfer Block\n"));
-                fData->Write(fDVDBuf, DVD_VIDEO_LB_LEN);
-
                 int64 frameCount;
                 PRINTF(1, ("Read frames\n"));
                 fTracks[0]->ReadFrames(buffer->Data(), &frameCount, buffer->Header());
