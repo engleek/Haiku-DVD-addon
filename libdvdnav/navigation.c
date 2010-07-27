@@ -30,11 +30,11 @@
 #include <string.h>
 #include <sys/time.h>
 #include "dvd_types.h"
-#include "nav_types.h"
-#include "ifo_types.h"
+#include <dvdread/nav_types.h>
+#include <dvdread/ifo_types.h>
 #include "remap.h"
-#include "decoder.h"
-#include "vm.h"
+#include "vm/decoder.h"
+#include "vm/vm.h"
 #include "dvdnav.h"
 #include "dvdnav_internal.h"
 
@@ -126,6 +126,14 @@ dvdnav_status_t dvdnav_current_title_info(dvdnav_t *this, int32_t *title, int32_
   return DVDNAV_STATUS_ERR;
 }
 
+void dvdnav_first_play(dvdnav_t *this) { 
+ 	pthread_mutex_lock(&this->vm_lock); 
+ 	this->started = 0; 
+ 	vm_start(this->vm); 
+ 	this->started = 1; 
+	pthread_mutex_unlock(&this->vm_lock); 
+} 
+    
 dvdnav_status_t dvdnav_title_play(dvdnav_t *this, int32_t title) {
   return dvdnav_part_play(this, title, 1);
 }
@@ -169,7 +177,7 @@ dvdnav_status_t dvdnav_part_play(dvdnav_t *this, int32_t title, int32_t part) {
 }
 
 dvdnav_status_t dvdnav_part_play_auto_stop(dvdnav_t *this, int32_t title,
-                       int32_t part, int32_t parts_to_play) {
+					   int32_t part, int32_t parts_to_play) {
   /* FIXME: Implement auto-stop */
  if (dvdnav_part_play(this, title, part) == DVDNAV_STATUS_OK)
    printerr("Not implemented yet.");
@@ -177,7 +185,7 @@ dvdnav_status_t dvdnav_part_play_auto_stop(dvdnav_t *this, int32_t title,
 }
 
 dvdnav_status_t dvdnav_time_play(dvdnav_t *this, int32_t title,
-                 uint64_t time) {
+				 uint64_t time) {
   /* FIXME: Implement */
   printerr("Not implemented yet.");
   return DVDNAV_STATUS_ERR;
