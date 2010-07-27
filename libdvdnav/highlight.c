@@ -32,12 +32,12 @@
 #include <limits.h>
 #include <string.h>
 #include <sys/time.h>
-#include "nav_types.h"
+#include <dvdread/nav_types.h>
 #include "dvd_types.h"
 #include "remap.h"
-#include "decoder.h"
-#include "vm.h"
-#include "vmcmd.h"
+#include "vm/decoder.h"
+#include "vm/vm.h"
+#include "vm/vmcmd.h"
 #include "dvdnav_internal.h"
 #include "dvdnav.h"
 
@@ -292,7 +292,7 @@ dvdnav_status_t dvdnav_left_button_select(dvdnav_t *this, pci_t *pci) {
 }
 
 dvdnav_status_t dvdnav_get_highlight_area(pci_t *nav_pci , int32_t button, int32_t mode,
-                      dvdnav_highlight_area_t *highlight) {
+					  dvdnav_highlight_area_t *highlight) {
   btni_t *button_ptr;
 
 #ifdef BUTTON_TESTING
@@ -435,7 +435,7 @@ dvdnav_status_t dvdnav_button_select(dvdnav_t *this, pci_t *pci, int32_t button)
 }
 
 dvdnav_status_t dvdnav_button_select_and_activate(dvdnav_t *this, pci_t *pci,
-                          int32_t button) {
+						  int32_t button) {
   /* A trivial function */
   if(dvdnav_button_select(this, pci, button) != DVDNAV_STATUS_ERR)
     return dvdnav_button_activate(this, pci);
