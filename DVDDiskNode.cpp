@@ -243,9 +243,7 @@ DVDDiskNode::Read(void *buffer, size_t size)
 
 ssize_t
 DVDDiskNode::ReadAt(off_t pos, void *buffer, size_t size)
-{
-    dvdnav_sector_search(fDVDNav, pos - fPosition, SEEK_CUR);
-    
+{ 
     fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) buffer, &fEvent, &fLen);
 
     if (fResult == DVDNAV_STATUS_ERR) {
@@ -282,12 +280,15 @@ DVDDiskNode::Seek(off_t position, uint32 seekMode)
 	switch (seekMode) {
 		case SEEK_SET:
 			fPosition = position;
+            dvdnav_sector_search(fDVDNav, fPosition, SEEK_SET);
 			break;
 		case SEEK_END:
 			fPosition = fLength + position;
+            dvdnav_sector_search(fDVDNav, fPosition, SEEK_END);
 			break;
 		case SEEK_CUR:
 			fPosition += position;
+            dvdnav_sector_search(fDVDNav, fPosition, SEEK_CUR);
 			break;
 		default:
 			break;
