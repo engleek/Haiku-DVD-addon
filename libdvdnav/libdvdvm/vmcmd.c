@@ -34,8 +34,8 @@
 #include <sys/time.h>
 
 #include "dvd_types.h"
-#include <dvdread/nav_types.h>
-#include <dvdread/ifo_types.h>
+#include "nav_types.h"
+#include "ifo_types.h"
 #include "decoder.h"
 #include "remap.h"
 #include "vm.h"

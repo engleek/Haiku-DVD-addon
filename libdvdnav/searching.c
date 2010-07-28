@@ -634,11 +634,6 @@ dvdnav_status_t dvdnav_get_position_in_title(dvdnav_t *this,
 */ 
 dvdnav_status_t dvdnav_relative_time_search(dvdnav_t *this, 
                     int relative_time) {
-  if(!this) {
-    printerr("Passed a NULL pointer.");
-    return DVDNAV_STATUS_ERR;
-  }
-
   uint32_t cur_vobu, new_vobu, start, offset; 
   uint32_t first_cell_nr, last_cell_nr, cell_nr; 
   cell_playback_t *cell; 
