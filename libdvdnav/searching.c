@@ -33,11 +33,11 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include "dvd_types.h"
-#include <dvdread/nav_types.h>
-#include <dvdread/ifo_types.h>
+#include "nav_types.h"
+#include "ifo_types.h"
 #include "remap.h"
-#include "vm/decoder.h"
-#include "vm/vm.h"
+#include "decoder.h"
+#include "vm.h"
 #include "dvdnav.h"
 #include "dvdnav_internal.h"
 
@@ -633,12 +633,11 @@ dvdnav_status_t dvdnav_get_position_in_title(dvdnav_t *this,
 * above 60 seconds on some dvds. 
 */ 
 dvdnav_status_t dvdnav_relative_time_search(dvdnav_t *this, 
-                    int relative_time) 
-{ 
-  if(!this) { 
-    printerr("Passed a NULL pointer."); 
- 	return DVDNAV_STATUS_ERR; 
-  } 
+                    int relative_time) {
+  if(!this) {
+    printerr("Passed a NULL pointer.");
+    return DVDNAV_STATUS_ERR;
+  }
 
   uint32_t cur_vobu, new_vobu, start, offset; 
   uint32_t first_cell_nr, last_cell_nr, cell_nr; 

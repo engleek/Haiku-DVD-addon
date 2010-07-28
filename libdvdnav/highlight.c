@@ -32,12 +32,12 @@
 #include <limits.h>
 #include <string.h>
 #include <sys/time.h>
-#include <dvdread/nav_types.h>
+#include "nav_types.h"
 #include "dvd_types.h"
 #include "remap.h"
-#include "vm/decoder.h"
-#include "vm/vm.h"
-#include "vm/vmcmd.h"
+#include "decoder.h"
+#include "vm.h"
+#include "vmcmd.h"
 #include "dvdnav_internal.h"
 #include "dvdnav.h"
 
