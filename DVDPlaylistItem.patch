@@ -1,0 +1,343 @@
+Index: Controller.h
+===================================================================
+--- Controller.h	(revision 37534)
++++ Controller.h	(working copy)
+@@ -33,8 +33,8 @@
+ #include "ListenerAdapter.h"
+ #include "NodeManager.h"
+ #include "PlaylistItem.h"
++#include "DVDPlaylistItem.h"
+ 
+-
+ class AudioTrackSupplier;
+ class BBitmap;
+ class BMediaFile;
+@@ -158,6 +158,8 @@
+ 			void				_NotifyPositionChanged(float position) const;
+ 			void				_NotifyVolumeChanged(float volume) const;
+ 			void				_NotifyMutedChanged(bool muted) const;
++			
++			bool				_IsDiskDrive(entry_ref ref) const;
+ 
+ 	// overridden from PlaybackManager so that we
+ 	// can use our own Listener mechanism
+Index: Controller.cpp
+===================================================================
+--- Controller.cpp	(revision 37534)
++++ Controller.cpp	(working copy)
+@@ -264,6 +264,13 @@
+ 	if (fItem.Get() == NULL)
+ 		return B_BAD_VALUE;
+ 
++	DVDPlaylistItem *diskItem;
++	diskItem = dynamic_cast<DVDPlaylistItem *>(fItem.Get());
++	
++	if (diskItem && _IsDiskDrive(diskItem->Ref())) {
++		printf("\nIt's a disk!\n\n");
++	}
++
+ 	BMediaFile* mf = fItem->CreateMediaFile();
+ 	ObjectDeleter<BMediaFile> mediaFileDeleter(mf);
+ 
+@@ -308,8 +315,8 @@
+ 		}
+ 	}
+ 
+-	//printf("Controller::SetTo: %d audio track, %d video track\n",
+-	//	AudioTrackCount(), VideoTrackCount());
++	printf("Controller::SetTo: %d audio track, %d video track\n",
++		AudioTrackCount(), VideoTrackCount());
+ 
+ 	fMediaFile = mf;
+ 	mediaFileDeleter.Detach();
+@@ -1032,6 +1039,35 @@
+ }
+ 
+ 
++bool
++Controller::_IsDiskDrive(entry_ref ref) const
++{
++	BEntry entry(&ref);
++	BPath path;
++	const char *name;
++	entry_ref e;
++
++	if (entry.GetPath(&path) != B_OK)
++		return false;
++
++	name = path.Path();
++
++	int devfd;
++	device_geometry g;
++
++	devfd = open(name, O_RDONLY);
++	if (devfd < 0)
++		return false;
++
++	if (ioctl(devfd, B_GET_GEOMETRY, &g, sizeof(g)) >= 0) {
++		if (g.device_type == B_CD)
++			return true;
++	}
++	close(devfd);
++	
++	return false;
++}
++
+ void
+ Controller::NotifyPlayModeChanged(int32 mode) const
+ {
+Index: playlist/DVDPlaylistItem.cpp
+===================================================================
+--- playlist/DVDPlaylistItem.cpp	(revision 0)
++++ playlist/DVDPlaylistItem.cpp	(revision 0)
+@@ -0,0 +1,185 @@
++/*
++ * Copyright © 2010 Christopher Humphries
++ * Based on FilePlaylistItem.cpp by Stephan Aßmus <superstippi@gmx.de>
++ * All rights reserved. Distributed under the terms of the MIT license.
++ */
++
++#include "DVDPlaylistItem.h"
++
++#include <stdio.h>
++
++#include <new>
++
++#include <Directory.h>
++#include <File.h>
++#include <FindDirectory.h>
++#include <MediaFile.h>
++#include <Path.h>
++
++
++static const char* kPathKey = "path";
++
++
++DVDPlaylistItem::DVDPlaylistItem(const entry_ref& ref)
++	:
++	fRef(ref)
++{
++}
++
++
++DVDPlaylistItem::DVDPlaylistItem(const DVDPlaylistItem& other)
++	:
++	fRef(other.fRef)
++{
++}
++
++
++DVDPlaylistItem::DVDPlaylistItem(const BMessage* archive)
++	:
++	fRef()
++{
++	const char* path;
++	if (archive != NULL && archive->FindString(kPathKey, &path) == B_OK) {
++		if (get_ref_for_path(path, &fRef) != B_OK)
++			fRef = entry_ref();
++	}
++}
++
++
++DVDPlaylistItem::~DVDPlaylistItem()
++{
++}
++
++
++PlaylistItem*
++DVDPlaylistItem::Clone() const
++{
++	return new (std::nothrow) DVDPlaylistItem(*this);
++}
++
++
++BArchivable*
++DVDPlaylistItem::Instantiate(BMessage* archive)
++{
++	if (validate_instantiation(archive, "DVDPlaylistItem"))
++		return new (std::nothrow) DVDPlaylistItem(archive);
++
++	return NULL;
++}
++
++
++// #pragma mark -
++
++
++status_t
++DVDPlaylistItem::Archive(BMessage* into, bool deep) const
++{
++	status_t ret = BArchivable::Archive(into, deep);
++	if (ret != B_OK)
++		return ret;
++	BPath path(&fRef);
++	ret = path.InitCheck();
++	if (ret == B_OK)
++		ret = into->AddString(kPathKey, path.Path());
++	return ret;
++}
++
++
++status_t
++DVDPlaylistItem::SetAttribute(const Attribute& attribute,
++	const BString& string)
++{
++	return B_NOT_SUPPORTED;
++}
++
++
++status_t
++DVDPlaylistItem::GetAttribute(const Attribute& attribute,
++	BString& string) const
++{
++	if (attribute == ATTR_STRING_NAME) {
++		string = BString(""); // TODO: dvdnav title
++		return B_OK;
++	}
++	return B_NOT_SUPPORTED;
++}
++
++
++status_t
++DVDPlaylistItem::SetAttribute(const Attribute& attribute,
++	const int32& value)
++{
++	return B_NOT_SUPPORTED;
++}
++
++
++status_t
++DVDPlaylistItem::GetAttribute(const Attribute& attribute,
++	int32& value) const
++{
++	return B_NOT_SUPPORTED;
++}
++
++
++status_t
++DVDPlaylistItem::SetAttribute(const Attribute& attribute,
++	const int64& value)
++{
++	return B_NOT_SUPPORTED;
++}
++
++
++status_t
++DVDPlaylistItem::GetAttribute(const Attribute& attribute,
++	int64& value) const
++{
++	return B_NOT_SUPPORTED;
++}
++
++
++// #pragma mark -
++
++
++BString
++DVDPlaylistItem::LocationURI() const
++{
++	BPath path(&fRef);
++	BString locationURI("file://");
++	locationURI << path.Path();
++	return locationURI;
++}
++
++
++status_t
++DVDPlaylistItem::GetIcon(BBitmap* bitmap, icon_size iconSize) const
++{
++	BNode node(&fRef);
++	BNodeInfo info(&node);
++	return info.GetTrackerIcon(bitmap, iconSize);
++}
++
++
++status_t
++DVDPlaylistItem::MoveIntoTrash()
++{
++	return B_ERROR;
++}
++
++
++
++status_t
++DVDPlaylistItem::RestoreFromTrash()
++{
++	return B_ERROR;
++}
++
++
++// #pragma mark -
++
++
++BMediaFile*
++DVDPlaylistItem::CreateMediaFile() const
++{
++	return NULL;
++}
++
+Index: playlist/DVDPlaylistItem.h
+===================================================================
+--- playlist/DVDPlaylistItem.h	(revision 0)
++++ playlist/DVDPlaylistItem.h	(revision 0)
+@@ -0,0 +1,60 @@
++/*
++ * Copyright © 2010 Christopher Humphries
++ * Based on FilePlaylistItem.h by Stephan Aßmus <superstippi@gmx.de>
++ * All rights reserved. Distributed under the terms of the MIT license.
++ */
++#ifndef DVD_PLAYLIST_ITEM_H
++#define DVD_PLAYLIST_ITEM_H
++
++#include "PlaylistItem.h"
++
++#include <Entry.h>
++
++class DVDPlaylistItem : public PlaylistItem {
++public:
++								DVDPlaylistItem(const entry_ref& ref);
++								DVDPlaylistItem(const DVDPlaylistItem& item);
++								DVDPlaylistItem(const BMessage* archive);
++	virtual						~DVDPlaylistItem();
++
++	virtual	PlaylistItem*		Clone() const;
++
++	// archiving
++	static	BArchivable*		Instantiate(BMessage* archive);
++	virtual	status_t			Archive(BMessage* into,
++									bool deep = true) const;
++
++	// attributes
++	virtual	status_t			SetAttribute(const Attribute& attribute,
++									const BString& string);
++	virtual	status_t			GetAttribute(const Attribute& attribute,
++									BString& string) const;
++
++	virtual	status_t			SetAttribute(const Attribute& attribute,
++									const int32& value);
++	virtual	status_t			GetAttribute(const Attribute& attribute,
++									int32& value) const;
++
++	virtual	status_t			SetAttribute(const Attribute& attribute,
++									const int64& value);
++	virtual	status_t			GetAttribute(const Attribute& attribute,
++									int64& value) const;
++
++	// methods
++	virtual	BString				LocationURI() const;
++	virtual	status_t			GetIcon(BBitmap* bitmap,
++									icon_size iconSize) const;
++
++	virtual	status_t			MoveIntoTrash();
++	virtual	status_t			RestoreFromTrash();
++
++	// playback
++	virtual	BMediaFile*			CreateMediaFile() const;
++
++			const entry_ref&	Ref() const { return fRef; }
++
++private:
++			entry_ref			fRef;
++};
++
++#endif // DVD_PLAYLIST_ITEM_H
