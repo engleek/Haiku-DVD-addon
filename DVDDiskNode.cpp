@@ -162,7 +162,7 @@ DVDDiskNode::InitOutputs()
             output->format.u.raw_video.display.format = encFormat->ColorSpace();
             
             //bufferSize = encFormat->Width() * encFormat->Height();
-            bufferSize = 4147200;
+            bufferSize = 8147200;
 
             track->DecodedFormat(&output->format);
             
@@ -231,7 +231,7 @@ DVDDiskNode::~DVDDiskNode()
 ssize_t
 DVDDiskNode::Read(void *buffer, size_t size)
 {
-    printf("DVD::Read() Called");
+    printf("DVD::Read(%Zu) Called\n", size);
     
 	off_t curPos = Position();
 	ssize_t result = ReadAt(curPos, buffer, size);
@@ -244,26 +244,33 @@ DVDDiskNode::Read(void *buffer, size_t size)
 
 ssize_t
 DVDDiskNode::ReadAt(off_t pos, void *buffer, size_t size)
-{ 
-    fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) buffer, &fEvent, &fLen);
+{
+    printf("DVD::ReadAt(%i, %lu)\n", (int)pos, (unsigned long)size);
 
-    if (fResult == DVDNAV_STATUS_ERR) {
-        printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
-        return B_ERROR;
-    }
+    int blockCount = ceil(size / DVD_VIDEO_LB_LEN);
 
-    while (fEvent != DVDNAV_BLOCK_OK) {
-        fResult = dvdnav_get_next_block(fDVDNav, (uint8_t *) buffer, &fEvent, &fLen);
+    uint8_t *buf = (uint8_t *) buffer;
+    buf = new uint8_t[blockCount * DVD_VIDEO_LB_LEN];
+
+    for (int i = 0; i < blockCount; i++) {
+        fResult = dvdnav_get_next_block(fDVDNav, buf + i * DVD_VIDEO_LB_LEN, &fEvent, &fLen);
 
         if (fResult == DVDNAV_STATUS_ERR) {
             printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
             return B_ERROR;
         }
+
+        while (fEvent != DVDNAV_BLOCK_OK) {
+            fResult = dvdnav_get_next_block(fDVDNav, buf + i * DVD_VIDEO_LB_LEN, &fEvent, &fLen);
+
+            if (fResult == DVDNAV_STATUS_ERR) {
+                printf("DVD: Error getting next block: %s\n", dvdnav_err_to_string(fDVDNav));
+                return B_ERROR;
+            }
+        }
     }
     
-    fPosition = pos;
-
-    return fLen;
+    return blockCount * DVD_VIDEO_LB_LEN;
 }
 
 
@@ -762,7 +769,7 @@ DVDDiskNode::StreamGenerator()
         status_t err = acquire_sem_etc(fStreamSync, 1, B_ABSOLUTE_TIMEOUT,
                 wait_until);
 
-        BBuffer *buffer = fBufferGroups[0]->RequestBuffer(4147200);
+        BBuffer *buffer = fBufferGroups[0]->RequestBuffer(8147200);
         if (!buffer)
             continue;
             
@@ -789,7 +796,7 @@ DVDDiskNode::StreamGenerator()
         int64 frameCount;
         PRINTF(1, ("Read frames\n"));
         fTracks[0]->ReadFrames(buffer->Data(), &frameCount, buffer->Header());
-                                
+        
         PRINTF(1, ("Send Buffer\n"));
         if (SendBuffer(buffer, fOutputs[0]->source, fOutputs[0]->destination) < B_OK) {
             printf("DVD: StreamGenerator: Error sending buffer\n");
